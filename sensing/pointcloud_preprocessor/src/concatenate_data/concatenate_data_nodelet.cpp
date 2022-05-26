@@ -168,6 +168,12 @@ PointCloudConcatenateDataSynchronizerComponent::PointCloudConcatenateDataSynchro
       std::bind(&PointCloudConcatenateDataSynchronizerComponent::timer_callback, this));
   }
 
+  // Initialize tf2_ros pointers
+  {
+    tf2_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
+    tf2_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf2_buffer_);
+  }
+
   // Diagnostic Updater
   {
     updater_.setHardwareID("concatenate_data_checker");
