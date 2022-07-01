@@ -8,7 +8,7 @@ ament_auto_add_library(detected_object_feature_remover_node SHARED
         src/object_detection_evaluator.cpp
         )
 
-rclcpp_components_register_node(object_detection_evaluator
+rclcpp_components_register_node(detected_object_feature_remover_node
         PLUGIN "object_detection_evaluator::ObjectDetectionEvaluator"
         EXECUTABLE object_detection_evaluator
         )

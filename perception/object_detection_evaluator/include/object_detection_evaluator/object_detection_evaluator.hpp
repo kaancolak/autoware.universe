@@ -4,23 +4,29 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include <autoware_auto_perception_msgs/msg/detected_objects.hpp>
-#include <tier4_perception_msgs/msg/detected_objects_with_feature.hpp>
+#include <message_filters/time_synchronizer.h>
+#include <message_filters/subscriber.h>
 
-namespace object_detection_evaluator
-{
+#include <message_filters/sync_policies/approximate_time.h>
+
+namespace object_detection_evaluator {
     using autoware_auto_perception_msgs::msg::DetectedObjects;
-    using tier4_perception_msgs::msg::DetectedObjectsWithFeature;
 
-class ObjectDetectionEvaluator : public rclcpp::Node
-{
+    class ObjectDetectionEvaluator : public rclcpp::Node {
     public:
-    explicit ObjectDetectionEvaluator(const rclcpp::NodeOptions & node_options);
+        explicit ObjectDetectionEvaluator(const rclcpp::NodeOptions &node_options);
 
     private:
-    rclcpp::Subscription<DetectedObjectsWithFeature>::SharedPtr sub_;
-    rclcpp::Publisher<DetectedObjects>::SharedPtr pub_;
-    void objectCallback(const DetectedObjectsWithFeature::ConstSharedPtr input);
-};
+
+        message_filters::Subscriber<DetectedObjects> sub_gt_objects_;
+        message_filters::Subscriber<DetectedObjects> sub_predicted_objects_;
+        typedef message_filters::sync_policies::ApproximateTime<DetectedObjects, DetectedObjects> SyncPolicy;
+        typedef message_filters::Synchronizer<SyncPolicy> Sync;
+        std::shared_ptr<Sync> sync_;
+
+        void objectCallback(const DetectedObjects::ConstSharedPtr input_gt,
+                            const DetectedObjects::ConstSharedPtr input_prediction);
+    };
 }
 
 #endif //BUILD_OBJECT_DETECTION_EVALUATOR_HPP
