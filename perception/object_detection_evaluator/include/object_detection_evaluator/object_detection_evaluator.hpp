@@ -4,10 +4,12 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include <autoware_auto_perception_msgs/msg/detected_objects.hpp>
+
 #include <message_filters/time_synchronizer.h>
 #include <message_filters/subscriber.h>
-
 #include <message_filters/sync_policies/approximate_time.h>
+
+#include "object_detection_evaluator/evaluate_object.hpp"
 
 namespace object_detection_evaluator {
     using autoware_auto_perception_msgs::msg::DetectedObjects;
@@ -26,6 +28,9 @@ namespace object_detection_evaluator {
 
         void objectCallback(const DetectedObjects::ConstSharedPtr input_gt,
                             const DetectedObjects::ConstSharedPtr input_prediction);
+
+        EvaluateObject _evaluate_object;
+
     };
 }
 

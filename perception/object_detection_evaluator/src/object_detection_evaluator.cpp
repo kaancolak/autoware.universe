@@ -2,9 +2,12 @@
 
 #include <boost/optional.hpp>
 
+
 namespace object_detection_evaluator {
+
     ObjectDetectionEvaluator::ObjectDetectionEvaluator(const rclcpp::NodeOptions &node_options)
             : Node("object_detection_evaluator", node_options) {
+        std::cout << "1111111111111" << std::endl;
         rclcpp::QoS qos(10);
         auto rmw_qos_profile = qos.get_rmw_qos_profile();
 
@@ -20,6 +23,7 @@ namespace object_detection_evaluator {
                 std::bind(&ObjectDetectionEvaluator::objectCallback, this, _1, _2));
 
         std::cout << "BIKBIK" << std::endl;
+
     }
 
     void ObjectDetectionEvaluator::objectCallback(
@@ -27,7 +31,11 @@ namespace object_detection_evaluator {
             const DetectedObjects::ConstSharedPtr input_prediction) {
         (void) input_gt;
         (void) input_prediction;
+        std::cout << "Input gt frame: " << input_gt->header.frame_id << std::endl;
+        std::cout << "input_prediction:" << input_prediction->header.frame_id << std::endl;
         std::cout << "Coming callback..." << std::endl;
+
+        _evaluate_object.eval(*input_gt, *input_prediction);
     }
 
 }
