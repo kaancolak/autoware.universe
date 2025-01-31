@@ -21,38 +21,27 @@ include_directories(
     ${GRID_MAP_INCLUDE_DIR}
 )
 
-ament_auto_add_library(ground_segmentation SHARED
-  src/ray_ground_filter_nodelet.cpp
-  src/ransac_ground_filter_nodelet.cpp
-  src/scan_ground_filter_nodelet.cpp
+ament_auto_add_library(${PROJECT_NAME} SHARED
+  src/scan_ground_filter/node.cpp
+  src/scan_ground_filter/grid_ground_filter.cpp
 )
 
-target_link_libraries(ground_segmentation
+target_link_libraries(${PROJECT_NAME}
   ${Boost_LIBRARIES}
   ${OpenCV_LIBRARIES}
   ${PCL_LIBRARIES}
 )
 
 if(OPENMP_FOUND)
-  set_target_properties(ground_segmentation PROPERTIES
+  set_target_properties(${PROJECT_NAME} PROPERTIES
     COMPILE_FLAGS ${OpenMP_CXX_FLAGS}
     LINK_FLAGS ${OpenMP_CXX_FLAGS}
   )
 endif()
 
 # ========== Ground Filter ==========
-# -- Ray Ground Filter --
-rclcpp_components_register_node(ground_segmentation
-  PLUGIN "ground_segmentation::RayGroundFilterComponent"
-  EXECUTABLE ray_ground_filter_node)
-
-# -- RANSAC Ground Filter --
-rclcpp_components_register_node(ground_segmentation
-  PLUGIN "ground_segmentation::RANSACGroundFilterComponent"
-  EXECUTABLE ransac_ground_filter_node)
-
 # -- Scan Ground Filter --
-rclcpp_components_register_node(ground_segmentation
+rclcpp_components_register_node(${PROJECT_NAME}
   PLUGIN "ground_segmentation::ScanGroundFilterComponent"
   EXECUTABLE scan_ground_filter_node)
 
@@ -83,21 +72,13 @@ endif()
 
 if(BUILD_TESTING)
   find_package(ament_cmake_ros REQUIRED)
-  ament_add_ros_isolated_gtest(test_ray_ground_filter
-    test/test_ray_ground_filter.cpp
-  )
-
-  target_link_libraries(test_ray_ground_filter
-    ground_segmentation
-    ${YAML_CPP_LIBRARIES}
-  )
-
   ament_add_ros_isolated_gtest(test_scan_ground_filter
     test/test_scan_ground_filter.cpp
   )
-
   target_link_libraries(test_scan_ground_filter
-    ground_segmentation
+    ${PROJECT_NAME}
     ${YAML_CPP_LIBRARIES}
   )
+
+
 endif()
