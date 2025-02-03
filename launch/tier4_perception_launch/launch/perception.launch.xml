@@ -164,6 +164,13 @@
       </include>
     </group>
 
+    <!-- #TODO(kaan): Add point densifier  -->
+    <!-- "/perception/obstacle_segmentation/pointcloud"  -->
+    <include file="$(find-pkg-share pointcloud_densifier)/launch/pointcloud_densifier.launch.py">
+        <arg name="input_topic" value="/perception/obstacle_segmentation/pointcloud"/>
+        <arg name="output_topic" value="/perception/obstacle_segmentation/pointcloud/densified"/>
+    </include>
+
     <!-- Occupancy grid map module -->
     <group>
       <push-ros-namespace namespace="occupancy_grid_map"/>

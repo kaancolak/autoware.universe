@@ -82,11 +82,12 @@ class PointcloudMapFilterPipeline:
         down_sample_topic = (
             "/perception/obstacle_segmentation/pointcloud_map_filtered/downsampled/pointcloud"
         )
+
         components.append(
             ComposableNode(
                 package="pointcloud_preprocessor",
-                plugin="pointcloud_preprocessor::VoxelGridDownsampleFilterComponent",
-                name="voxel_grid_downsample_filter",
+                plugin="pointcloud_preprocessor::RoiExcludedVoxelGridDownsampleFilterComponent",
+                name="roi_excluded_voxel_grid_downsample_filter",
                 remappings=[
                     ("input", LaunchConfiguration("input_topic")),
                     ("output", down_sample_topic),
@@ -96,6 +97,10 @@ class PointcloudMapFilterPipeline:
                         "voxel_size_x": self.voxel_size,
                         "voxel_size_y": self.voxel_size,
                         "voxel_size_z": self.voxel_size,
+                        "roi_x_min": 80.0,
+                        "roi_x_max": 200.0,
+                        "roi_y_min": -20.0,
+                        "roi_y_max": 20.0,
                     }
                 ],
                 extra_arguments=[
