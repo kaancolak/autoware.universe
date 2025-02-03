@@ -61,12 +61,28 @@ ament_target_dependencies(faster_voxel_grid_downsample_filter
   sensor_msgs
 )
 
+add_library(roi_excluded_faster_voxel_grid_downsample_filter SHARED
+  src/downsample_filter/roi_excluded_faster_voxel_grid_downsample_filter.cpp
+)
+
+target_include_directories(roi_excluded_faster_voxel_grid_downsample_filter PUBLIC
+  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+  "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>"
+)
+
+ament_target_dependencies(roi_excluded_faster_voxel_grid_downsample_filter
+  pcl_conversions
+  rclcpp
+  sensor_msgs
+)
+
 ament_auto_add_library(pointcloud_preprocessor_filter SHARED
   src/concatenate_data/concatenate_and_time_sync_nodelet.cpp
   src/concatenate_data/concatenate_pointclouds.cpp
   src/time_synchronizer/time_synchronizer_nodelet.cpp
   src/crop_box_filter/crop_box_filter_nodelet.cpp
   src/downsample_filter/voxel_grid_downsample_filter_nodelet.cpp
+  src/downsample_filter/roi_excluded_voxel_grid_downsample_filter_nodelet.cpp
   src/downsample_filter/random_downsample_filter_nodelet.cpp
   src/downsample_filter/approximate_downsample_filter_nodelet.cpp
   src/downsample_filter/pickup_based_voxel_grid_downsample_filter.cpp
@@ -87,9 +103,11 @@ ament_auto_add_library(pointcloud_preprocessor_filter SHARED
   src/utility/geometry.cpp
 )
 
+# Merge linking for pointcloud_preprocessor_filter
 target_link_libraries(pointcloud_preprocessor_filter
   pointcloud_preprocessor_filter_base
   faster_voxel_grid_downsample_filter
+  roi_excluded_faster_voxel_grid_downsample_filter
   ${Boost_LIBRARIES}
   ${OpenCV_LIBRARIES}
   ${Sophus_LIBRARIES}
@@ -135,6 +153,11 @@ rclcpp_components_register_node(pointcloud_preprocessor_filter
 rclcpp_components_register_node(pointcloud_preprocessor_filter
   PLUGIN "pointcloud_preprocessor::ApproximateDownsampleFilterComponent"
   EXECUTABLE approximate_downsample_filter_node)
+
+# -- ROI Excluded Voxel Grid Downsample Filter --
+rclcpp_components_register_node(pointcloud_preprocessor_filter
+  PLUGIN "pointcloud_preprocessor::RoiExcludedVoxelGridDownsampleFilterComponent"
+  EXECUTABLE roi_excluded_voxel_grid_downsample_filter_node)
 
 # ========== Outlier Filter ==========
 # -- Ring Outlier Filter --
@@ -210,6 +233,13 @@ install(
 
 install(
   TARGETS faster_voxel_grid_downsample_filter EXPORT export_${PROJECT_NAME}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
+install(
+  TARGETS roi_excluded_faster_voxel_grid_downsample_filter EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
