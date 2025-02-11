@@ -23,6 +23,7 @@
 #include <memory>
 #include <unordered_map>
 #include <vector>
+#include <cmath>
 
 namespace
 {
@@ -71,8 +72,11 @@ double getFormedYawAngle(
 DataAssociation::DataAssociation(
   std::vector<int> can_assign_vector, std::vector<double> max_dist_vector,
   std::vector<double> max_area_vector, std::vector<double> min_area_vector,
-  std::vector<double> max_rad_vector, std::vector<double> min_iou_vector)
-: score_threshold_(0.01)
+  std::vector<double> max_rad_vector, std::vector<double> min_iou_vector,
+  double unknown_long_range_threshold, double long_range_min_unknown_iou) // renamed parameters
+: score_threshold_(0.01),
+  unknown_long_range_threshold_(unknown_long_range_threshold),  // store renamed parameter
+  long_range_min_unknown_iou_(long_range_min_unknown_iou)         // store renamed parameter
 {
   {
     const int assign_label_num = static_cast<int>(std::sqrt(can_assign_vector.size()));
@@ -203,13 +207,21 @@ Eigen::MatrixXd DataAssociation::calcScoreMatrix(
             getXYCovariance(tracked_object.kinematics.pose_with_covariance));
           if (3.035 /*99%*/ <= mahalanobis_dist) passed_gate = false;
         }
-        // 2d iou gate
+        // 2d iou gate using renamed unknown parameter.
         if (passed_gate) {
-          const double min_iou = min_iou_matrix_(tracker_label, measurement_label);
+          const double default_min_iou = min_iou_matrix_(tracker_label, measurement_label);
+          double distance = std::sqrt(
+              std::pow(measurement_object.kinematics.pose_with_covariance.pose.position.x, 2) +
+              std::pow(measurement_object.kinematics.pose_with_covariance.pose.position.y, 2));
+          // Compute effective minimum IoU based on long-range condition.
+          const double effective_min_iou =
+            (tracker_label == 0 && measurement_label == 0 && distance > unknown_long_range_threshold_) ?
+            long_range_min_unknown_iou_ : default_min_iou;
+  
           const double min_union_iou_area = 1e-2;
           const double iou = object_recognition_utils::get2dIoU(
             measurement_object, tracked_object, min_union_iou_area);
-          if (iou < min_iou) passed_gate = false;
+          if (iou < effective_min_iou) passed_gate = false;
         }
 
         // all gate is passed
