@@ -188,6 +188,7 @@
             <arg name="input/rois_number" value="1"/>
             <arg name="input/rois0" value="/tmp/perception/object_recognition/detection/rois4"/>
             <arg name="input/camera_info0" value="/sensing/camera/camera4/camera_info"/>
+            <arg name="input/image0" value="/sensing/camera/camera4/image_raw"/>
             <arg name="input/clusters" value="$(var input/clustering)"/>
             <arg name="output/clusters" value="pruned/clusters"/>
         </include>
