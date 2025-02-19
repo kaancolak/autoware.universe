@@ -44,16 +44,13 @@ private:
   Eigen::MatrixXd min_iou_matrix_;
   const double score_threshold_;
   std::unique_ptr<gnn_solver::GnnSolverInterface> gnn_solver_ptr_;
-  double unknown_long_range_threshold_;   // renamed: threshold for unknown long-range objects
-  double long_range_min_unknown_iou_;       // renamed: min IoU for unknown objects at long range
 
 public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   DataAssociation(
     std::vector<int> can_assign_vector, std::vector<double> max_dist_vector,
     std::vector<double> max_area_vector, std::vector<double> min_area_vector,
-    std::vector<double> max_rad_vector, std::vector<double> min_iou_vector,
-    double unknown_long_range_threshold, double long_range_min_unknown_iou); // renamed parameters
+    std::vector<double> max_rad_vector, std::vector<double> min_iou_vector);
   void assign(
     const Eigen::MatrixXd & src, std::unordered_map<int, int> & direct_assignment,
     std::unordered_map<int, int> & reverse_assignment);

@@ -87,10 +87,6 @@ MultiObjectTracker::MultiObjectTracker(const rclcpp::NodeOptions & node_options)
   world_frame_id_ = declare_parameter<std::string>("world_frame_id");
   bool enable_delay_compensation{declare_parameter<bool>("enable_delay_compensation")};
 
-  // Unknown objects 2d IOU gate adjustment
-  const double unknown_long_range_threshold_param = declare_parameter<double>("unknown_long_range_threshold", 80.0);
-  const double long_range_min_unknown_iou_param = declare_parameter<double>("long_range_min_unknown_iou", 0.3);
-
   declare_parameter("selected_input_channels", std::vector<std::string>());
   std::vector<std::string> selected_input_channels =
     get_parameter("selected_input_channels").as_string_array();
@@ -198,7 +194,7 @@ MultiObjectTracker::MultiObjectTracker(const rclcpp::NodeOptions & node_options)
 
     data_association_ = std::make_unique<DataAssociation>(
       can_assign_matrix, max_dist_matrix, max_area_matrix, min_area_matrix, max_rad_matrix,
-      min_iou_matrix, unknown_long_range_threshold_param, long_range_min_unknown_iou_param);
+      min_iou_matrix);
   }
 
   // Debugger
