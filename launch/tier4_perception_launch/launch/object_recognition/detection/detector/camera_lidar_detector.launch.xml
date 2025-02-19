@@ -182,6 +182,18 @@
     <group>
       <let name="input/clustering" value="/perception/object_recognition/detection/clustering/clusters"/>
       <push-ros-namespace namespace="camera_lidar_fusion"/>
+
+      <group>
+        <include file="$(find-pkg-share image_projection_based_fusion)/launch/roi_cluster_pruner_fusion.launch.xml">
+            <arg name="input/rois_number" value="1"/>
+            <arg name="input/rois0" value="/tmp/perception/object_recognition/detection/rois4"/>
+            <arg name="input/camera_info0" value="/sensing/camera/camera4/camera_info"/>
+            <arg name="input/clusters" value="$(var input/clustering)"/>
+            <arg name="output/clusters" value="pruned/clusters"/>
+        </include>
+      </group>
+
+
       <!-- Fusion camera-lidar to classify -->
 
       <!-- euclidean clustering -->
@@ -206,7 +218,7 @@
           <arg name="input/camera_info8" value="$(var camera_info8)"/>
           <arg name="input/rois8" value="$(var detection_rois8)"/>
           <arg name="input/rois_number" value="$(var image_number)"/>
-          <arg name="input/clusters" value="$(var input/clustering)"/>
+          <arg name="input/clusters" value="pruned/clusters"/>
           <arg name="input/image0" value="$(var image_raw0)"/>
           <arg name="input/image1" value="$(var image_raw1)"/>
           <arg name="input/image2" value="$(var image_raw2)"/>
