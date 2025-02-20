@@ -27,6 +27,7 @@ protected:
   double iou_merge_threshold_;
   double merge_distance_threshold_default_;
   std::unordered_map<uint8_t, double> merge_distance_threshold_map_;
+  std::set<uint8_t> valid_labels_;
 
   // New filter scope parameters.
   float roi_min_x_;
@@ -37,6 +38,9 @@ protected:
   float roi_max_z_;
 
   double roi_scale_factor_;
+
+  
+  
 };
 }  // namespace image_projection_based_fusion
 

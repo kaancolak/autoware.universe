@@ -1,6 +1,6 @@
 /**:
   ros__parameters:
-    roi_scale_factor: 1.5
+    roi_scale_factor: 1.1
     merge_distance_threshold_car: 4.0
     merge_distance_threshold_bus: 6.0
     merge_distance_threshold_truck: 6.0
@@ -9,5 +9,5 @@
     filter_scope_max_x: 300.0
     filter_scope_min_y: -40.0
     filter_scope_max_y: 40.0
-    filter_scope_min_z: -10.0
-    filter_scope_max_z: 10.0
+    filter_scope_min_z: -20.0
+    filter_scope_max_z: 20.0
