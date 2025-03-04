@@ -13,8 +13,8 @@
 // limitations under the License.
 
 #include "autoware/pointcloud_preprocessor/pointcloud_densifier/occupancy_grid.hpp"
-#include <cmath>  // Added for std::ceil
-#include <stdexcept>  // Added for std::invalid_argument
+#include <cmath> 
+#include <stdexcept>  
 
 namespace autoware::pointcloud_preprocessor
 {
@@ -22,7 +22,6 @@ namespace autoware::pointcloud_preprocessor
 OccupancyGrid::OccupancyGrid(double x_min, double x_max, double y_min, double y_max, double resolution)
 : x_min_(x_min), x_max_(x_max), y_min_(y_min), y_max_(y_max), resolution_(resolution)
 {
-  // Add validation
   if (resolution <= 0) {
     throw std::invalid_argument("Resolution must be positive");
   }
@@ -41,11 +40,9 @@ void OccupancyGrid::updateOccupancy(const sensor_msgs::msg::PointCloud2& cloud)
   // Reset grid
   std::fill(grid_.begin(), grid_.end(), false);
   
-  // Use point iterators to access x,y coordinates
   sensor_msgs::PointCloud2ConstIterator<float> iter_x(cloud, "x");
   sensor_msgs::PointCloud2ConstIterator<float> iter_y(cloud, "y");
   
-  // Process all points
   for (; iter_x != iter_x.end(); ++iter_x, ++iter_y) {
     float x = *iter_x;
     float y = *iter_y;
@@ -57,7 +54,6 @@ void OccupancyGrid::updateOccupancy(const sensor_msgs::msg::PointCloud2& cloud)
     size_t col = static_cast<size_t>((x - x_min_) / resolution_);
     size_t row = static_cast<size_t>((y - y_min_) / resolution_);
     
-    // Safety check for grid bounds
     if (row < rows_ && col < cols_) {
       grid_[index(row, col)] = true;
     }
@@ -66,16 +62,14 @@ void OccupancyGrid::updateOccupancy(const sensor_msgs::msg::PointCloud2& cloud)
 
 bool OccupancyGrid::isOccupied(double x, double y) const
 {
-  // Check if coordinates are within grid bounds
+
   if (x < x_min_ || x >= x_max_ || y < y_min_ || y >= y_max_) {
     return false;
   }
   
-  // Convert coordinates to grid indices
   size_t col = static_cast<size_t>((x - x_min_) / resolution_);
   size_t row = static_cast<size_t>((y - y_min_) / resolution_);
   
-  // Safety check for grid bounds
   if (row >= rows_ || col >= cols_) {
     return false;
   }

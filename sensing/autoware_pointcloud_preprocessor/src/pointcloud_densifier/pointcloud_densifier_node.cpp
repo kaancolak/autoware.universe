@@ -94,7 +94,6 @@ void PointCloudDensifierNode::faster_filter(
   // No need this transformer 
   (void)transform_info;
 
-  // Filter points by ROI
   auto far_front_pointcloud_ptr = filterPointCloudByROI(input, indices);
   
   // Build occupancy grid from the current filtered cloud
@@ -102,16 +101,13 @@ void PointCloudDensifierNode::faster_filter(
     param_.x_min, param_.x_max, param_.y_min, param_.y_max, param_.grid_resolution);
   occupancy_grid.updateOccupancy(*far_front_pointcloud_ptr);
 
-  // Start with input cloud
-  output = *input;  // Copy metadata and structure
 
-  // Transform and merge previous clouds
+  output = *input;  
+
   transformAndMergePreviousClouds(input, occupancy_grid, output);
 
-  // Store the current filtered point cloud for future use
-  storeCurrentCloud(far_front_pointcloud_ptr, input->header);
+  storeCurrentCloud(far_front_pointcloud_ptr);
 
-  // Add debug info
   if (debug_publisher_) {
     const double cyclic_time_ms = stop_watch_ptr_->toc("cyclic_time", true);
     const double processing_time_ms = stop_watch_ptr_->toc("processing_time", true);
@@ -135,15 +131,13 @@ sensor_msgs::msg::PointCloud2::SharedPtr PointCloudDensifierNode::filterPointClo
 {
   auto filtered_cloud = std::make_shared<sensor_msgs::msg::PointCloud2>();
   
-  // Initialize output with same format as input
   filtered_cloud->header = input_cloud->header;
-  filtered_cloud->height = 1;  // Unorganized cloud
+  filtered_cloud->height = 1;  
   filtered_cloud->fields = input_cloud->fields;
   filtered_cloud->is_bigendian = input_cloud->is_bigendian;
   filtered_cloud->point_step = input_cloud->point_step;
   filtered_cloud->is_dense = input_cloud->is_dense;
   
-  // Get field offsets
   int x_offset = input_cloud->fields[pcl::getFieldIndex(*input_cloud, "x")].offset;
   int y_offset = input_cloud->fields[pcl::getFieldIndex(*input_cloud, "y")].offset;
   
@@ -151,12 +145,10 @@ sensor_msgs::msg::PointCloud2::SharedPtr PointCloudDensifierNode::filterPointClo
   filtered_cloud->data.resize(input_cloud->data.size());
   size_t output_size = 0;
   
-  // If indices are provided, use them; otherwise, process all points
   if (indices && !indices->empty()) {
     for (const auto & idx : *indices) {
       const size_t data_offset = idx * input_cloud->point_step;
       
-      // Get x,y coordinates
       float x, y;
       std::memcpy(&x, &input_cloud->data[data_offset + x_offset], sizeof(float));
       std::memcpy(&y, &input_cloud->data[data_offset + y_offset], sizeof(float));
@@ -172,7 +164,6 @@ sensor_msgs::msg::PointCloud2::SharedPtr PointCloudDensifierNode::filterPointClo
       }
     }
   } else {
-    // Process all points if no indices provided
     for (size_t i = 0; i < input_cloud->width * input_cloud->height; ++i) {
       const size_t data_offset = i * input_cloud->point_step;
       
@@ -206,30 +197,28 @@ void PointCloudDensifierNode::transformAndMergePreviousClouds(
   const OccupancyGrid & occupancy_grid,
   PointCloud2 & combined_cloud)
 {
-  // Get field offsets for x,y coordinates
   int x_offset = current_msg->fields[pcl::getFieldIndex(*current_msg, "x")].offset;
   int y_offset = current_msg->fields[pcl::getFieldIndex(*current_msg, "y")].offset;
   
-  for (const auto& previous_pointcloud : previous_pointclouds_) {
-    if (!previous_pointcloud.cloud || previous_pointcloud.cloud->data.empty()) {
+  for (const auto& previous_cloud : previous_pointclouds_) {
+    if (!previous_cloud || previous_cloud->data.empty()) {
       continue;
     }
     
-    // Get transform from previous cloud's frame to current frame
     geometry_msgs::msg::TransformStamped transform_stamped;
     try {
       tf2::TimePoint current_time_point = tf2::TimePoint(
         std::chrono::nanoseconds(current_msg->header.stamp.nanosec) +
         std::chrono::seconds(current_msg->header.stamp.sec));
       tf2::TimePoint prev_time_point = tf2::TimePoint(
-        std::chrono::nanoseconds(previous_pointcloud.header.stamp.nanosec) +
-        std::chrono::seconds(previous_pointcloud.header.stamp.sec));
+        std::chrono::nanoseconds(previous_cloud->header.stamp.nanosec) +
+        std::chrono::seconds(previous_cloud->header.stamp.sec));
       transform_stamped = tf_buffer_->lookupTransform(
         current_msg->header.frame_id,
         current_time_point,
-        previous_pointcloud.header.frame_id,
+        previous_cloud->header.frame_id,
         prev_time_point,
-        "map"  // fixed frame
+        "map"  
       );
     } catch (tf2::TransformException & ex) {
       RCLCPP_WARN(get_logger(), "Could not transform point cloud: %s", ex.what());
@@ -245,13 +234,12 @@ void PointCloudDensifierNode::transformAndMergePreviousClouds(
     
     // Transform previous point cloud to current frame
     sensor_msgs::msg::PointCloud2 transformed_cloud;
-    tf2::doTransform(*previous_pointcloud.cloud, transformed_cloud, transform_stamped);
+    tf2::doTransform(*previous_cloud, transformed_cloud, transform_stamped);
     
     // Get transformed cloud field offsets
     x_offset = transformed_cloud.fields[pcl::getFieldIndex(transformed_cloud, "x")].offset;
     y_offset = transformed_cloud.fields[pcl::getFieldIndex(transformed_cloud, "y")].offset;
     
-    // Pre-allocate space for potential new points (worst case: all points are added)
     size_t original_size = combined_cloud.data.size();
     combined_cloud.data.resize(original_size + transformed_cloud.data.size());
     size_t output_size = original_size;
@@ -276,27 +264,22 @@ void PointCloudDensifierNode::transformAndMergePreviousClouds(
       }
     }
     
-    // Resize to actual size used
     combined_cloud.data.resize(output_size);
   }
   
   // Update cloud metadata
   combined_cloud.width = combined_cloud.data.size() / combined_cloud.point_step;
   combined_cloud.row_step = combined_cloud.width * combined_cloud.point_step;
-  combined_cloud.height = 1;  // Unorganized point cloud
+  combined_cloud.height = 1;  
 }
 
 void PointCloudDensifierNode::storeCurrentCloud(
-  const sensor_msgs::msg::PointCloud2::SharedPtr & filtered_cloud,
-  const std_msgs::msg::Header & header)
+  const sensor_msgs::msg::PointCloud2::SharedPtr & filtered_cloud)
 {
-  StoredPointCloud current_pointcloud;
-  current_pointcloud.cloud = filtered_cloud;
-  current_pointcloud.header = header;
   if (previous_pointclouds_.size() >= static_cast<size_t>(param_.num_previous_frames)) {
     previous_pointclouds_.pop_front();
   }
-  previous_pointclouds_.push_back(current_pointcloud);
+  previous_pointclouds_.push_back(filtered_cloud);
 }
 
 bool PointCloudDensifierNode::isValidTransform(const Eigen::Matrix4d & transform) const
@@ -345,7 +328,6 @@ rcl_interfaces::msg::SetParametersResult PointCloudDensifierNode::paramCallback(
     }
   }
 
-  // Apply all valid changes
   param_ = new_param;
 
   rcl_interfaces::msg::SetParametersResult result;

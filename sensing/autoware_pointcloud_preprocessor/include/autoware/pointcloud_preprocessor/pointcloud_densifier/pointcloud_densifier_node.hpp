@@ -26,11 +26,6 @@
 namespace autoware::pointcloud_preprocessor
 {
 
-struct StoredPointCloud {
-  sensor_msgs::msg::PointCloud2::SharedPtr cloud;
-  std_msgs::msg::Header header;
-};
-
 class PointCloudDensifierNode : public Filter
 {
 protected:
@@ -52,8 +47,7 @@ private:
     PointCloud2 & combined_cloud);
     
   void storeCurrentCloud(
-    const sensor_msgs::msg::PointCloud2::SharedPtr & filtered_cloud,
-    const std_msgs::msg::Header & header);
+    const sensor_msgs::msg::PointCloud2::SharedPtr & filtered_cloud);
 
   bool isValidTransform(const Eigen::Matrix4d & transform) const;
   
@@ -66,7 +60,7 @@ private:
     double grid_resolution{0.3};
   } param_;
   
-  std::deque<StoredPointCloud> previous_pointclouds_;
+  std::deque<sensor_msgs::msg::PointCloud2::SharedPtr> previous_pointclouds_;
   
   // Add tf buffer as member since Filter class doesn't expose it
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
