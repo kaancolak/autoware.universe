@@ -17,8 +17,8 @@
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
-#include <tf2_eigen/tf2_eigen.hpp>  // For transformToEigen
-#include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>  // For doTransform with PointCloud2
+#include <tf2_eigen/tf2_eigen.hpp>  
+#include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>  
 
 #include <memory>
 #include <vector>
@@ -28,7 +28,6 @@ namespace autoware::pointcloud_preprocessor
 
 PointCloudDensifierNode::PointCloudDensifierNode(const rclcpp::NodeOptions & options)
 : Filter("PointCloudDensifier", options),
-  // Initialize TF buffer
   tf_buffer_(std::make_shared<tf2_ros::Buffer>(this->get_clock())),
   tf_listener_(std::make_shared<tf2_ros::TransformListener>(*tf_buffer_))
 {
@@ -248,13 +247,11 @@ void PointCloudDensifierNode::transformAndMergePreviousClouds(
     for (size_t i = 0; i < transformed_cloud.width; ++i) {
       size_t data_offset = i * transformed_cloud.point_step;
       
-      // Get x,y coordinates of transformed point
       float x, y;
       std::memcpy(&x, &transformed_cloud.data[data_offset + x_offset], sizeof(float));
       std::memcpy(&y, &transformed_cloud.data[data_offset + y_offset], sizeof(float));
       
       if (occupancy_grid.isOccupied(x, y)) {
-        // Copy point data
         std::memcpy(
           &combined_cloud.data[output_size],
           &transformed_cloud.data[data_offset],
@@ -267,7 +264,6 @@ void PointCloudDensifierNode::transformAndMergePreviousClouds(
     combined_cloud.data.resize(output_size);
   }
   
-  // Update cloud metadata
   combined_cloud.width = combined_cloud.data.size() / combined_cloud.point_step;
   combined_cloud.row_step = combined_cloud.width * combined_cloud.point_step;
   combined_cloud.height = 1;  
@@ -295,7 +291,6 @@ rcl_interfaces::msg::SetParametersResult PointCloudDensifierNode::paramCallback(
 
   DensifierParam new_param = param_;
 
-  // Update parameters if changed
   if (get_param(p, "num_previous_frames", new_param.num_previous_frames)) {
     if (new_param.num_previous_frames < 0) {
       new_param.num_previous_frames = 0;

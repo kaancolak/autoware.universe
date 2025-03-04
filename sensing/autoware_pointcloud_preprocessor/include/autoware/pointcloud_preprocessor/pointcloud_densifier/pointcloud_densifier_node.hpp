@@ -37,7 +37,6 @@ protected:
     const TransformInfo & transform_info) override;
 
 private:
-  // Helper methods
   sensor_msgs::msg::PointCloud2::SharedPtr filterPointCloudByROI(
     const PointCloud2ConstPtr & input_cloud, const IndicesPtr & indices = nullptr);
   
@@ -62,7 +61,6 @@ private:
   
   std::deque<sensor_msgs::msg::PointCloud2::SharedPtr> previous_pointclouds_;
   
-  // Add tf buffer as member since Filter class doesn't expose it
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   

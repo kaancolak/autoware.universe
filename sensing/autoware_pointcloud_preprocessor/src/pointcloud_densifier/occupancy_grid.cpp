@@ -37,7 +37,6 @@ OccupancyGrid::OccupancyGrid(double x_min, double x_max, double y_min, double y_
 
 void OccupancyGrid::updateOccupancy(const sensor_msgs::msg::PointCloud2& cloud)
 {
-  // Reset grid
   std::fill(grid_.begin(), grid_.end(), false);
   
   sensor_msgs::PointCloud2ConstIterator<float> iter_x(cloud, "x");
