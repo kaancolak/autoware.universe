@@ -15,7 +15,8 @@
 import launch
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch_ros.actions import ComposableNodeContainer
+from launch_ros.descriptions import ComposableNode
 import os
 from ament_index_python.packages import get_package_share_directory
 
@@ -24,13 +25,7 @@ def generate_launch_description():
     pkg_prefix = get_package_share_directory('autoware_pointcloud_preprocessor')
     config_file = os.path.join(pkg_prefix, 'config/pointcloud_densifier.param.yaml')
 
-    # Declare only the arguments that might be overridden at launch time
-    point_type = DeclareLaunchArgument(
-        "point_type",
-        default_value="autoware::point_types::PointXYZIRC",
-        description="Point type to use (pcl::PointXYZ, pcl::PointXYZI, autoware::point_types::PointXYZIRC)",
-    )
-    
+    # Declare arguments that might be overridden at launch time
     input_topic = DeclareLaunchArgument(
         "input_topic",
         default_value="/sensing/lidar/concatenated/pointcloud",
@@ -43,28 +38,33 @@ def generate_launch_description():
         description="Output pointcloud topic",
     )
 
-    # Create our custom launcher node
-    densifier_node = Node(
+    # Create the composable node
+    # We're now using the component directly since the node inherits from Filter
+    component = ComposableNode(
         package="autoware_pointcloud_preprocessor",
-        executable="pointcloud_densifier_launcher",
+        plugin="autoware::pointcloud_preprocessor::PointCloudDensifierNode",
         name="pointcloud_densifier",
         remappings=[
             ("input", LaunchConfiguration("input_topic")),
             ("output", LaunchConfiguration("output_topic")),
         ],
-        parameters=[
-            config_file,  # Load parameters from config file first
-            {
-                "point_type": LaunchConfiguration("point_type"),  # Override point_type from launch args
-            }
-        ],
+        parameters=[config_file],
+    )
+
+    # Create container
+    container = ComposableNodeContainer(
+        name="pointcloud_densifier_container",
+        namespace="",
+        package="rclcpp_components",
+        executable="component_container",
+        composable_node_descriptions=[component],
+        output="screen",
     )
 
     return launch.LaunchDescription([
-        # Launch arguments - only those that might be overridden
-        point_type,
+        # Launch arguments
         input_topic,
         output_topic,
         # Nodes
-        densifier_node,
+        container,
     ])

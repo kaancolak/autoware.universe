@@ -18,76 +18,66 @@
 #include <deque>
 #include <memory>
 #include <string>
-#include <type_traits>
 
-#include "rclcpp/rclcpp.hpp"
-#include "sensor_msgs/msg/point_cloud2.hpp"
-#include "sensor_msgs/point_cloud2_iterator.hpp"
-#include <tf2_ros/transform_listener.h>
-#include <tf2_ros/buffer.h>
-#include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>
-#include <tf2_eigen/tf2_eigen.hpp>
-#include <Eigen/Geometry>
-
+#include "autoware/pointcloud_preprocessor/filter.hpp"
+#include "autoware/pointcloud_preprocessor/transform_info.hpp"
 #include "autoware/pointcloud_preprocessor/pointcloud_densifier/occupancy_grid.hpp"
 
 namespace autoware::pointcloud_preprocessor
 {
 
-// Structure to store point clouds with metadata
 struct StoredPointCloud {
   sensor_msgs::msg::PointCloud2::SharedPtr cloud;
   std_msgs::msg::Header header;
 };
 
-class PointCloudDensifierNode : public rclcpp::Node
+class PointCloudDensifierNode : public Filter
 {
-public:
-  explicit PointCloudDensifierNode() 
-  : PointCloudDensifierNode(rclcpp::NodeOptions()) {}
-  
-  explicit PointCloudDensifierNode(const rclcpp::NodeOptions & options);
+protected:
+  void filter(
+    const PointCloud2ConstPtr & input, const IndicesPtr & indices, PointCloud2 & output) override;
+
+  void faster_filter(
+    const PointCloud2ConstPtr & input, const IndicesPtr & indices, PointCloud2 & output,
+    const TransformInfo & transform_info) override;
 
 private:
-  void onPointCloud(const std::shared_ptr<const sensor_msgs::msg::PointCloud2> & input_msg);
-
   // Helper methods
   sensor_msgs::msg::PointCloud2::SharedPtr filterPointCloudByROI(
-    const sensor_msgs::msg::PointCloud2::ConstSharedPtr& input_cloud);
+    const PointCloud2ConstPtr & input_cloud, const IndicesPtr & indices = nullptr);
   
   void transformAndMergePreviousClouds(
-    const sensor_msgs::msg::PointCloud2::ConstSharedPtr& current_msg,
-    const OccupancyGrid& occupancy_grid,
-    sensor_msgs::msg::PointCloud2::SharedPtr& combined_cloud);
+    const PointCloud2ConstPtr & current_msg,
+    const OccupancyGrid & occupancy_grid,
+    PointCloud2 & combined_cloud);
     
   void storeCurrentCloud(
-    const sensor_msgs::msg::PointCloud2::SharedPtr& filtered_cloud,
-    const std_msgs::msg::Header& header);
+    const sensor_msgs::msg::PointCloud2::SharedPtr & filtered_cloud,
+    const std_msgs::msg::Header & header);
 
-  bool isValidTransform(const Eigen::Matrix4d& transform) const;
-  void loadParameters();
+  bool isValidTransform(const Eigen::Matrix4d & transform) const;
   
-  rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr pointcloud_sub_;
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pointcloud_pub_;
-
+  struct DensifierParam {
+    int num_previous_frames{1};
+    double x_min{80.0};
+    double x_max{200.0};
+    double y_min{-20.0};
+    double y_max{20.0};
+    double grid_resolution{0.3};
+  } param_;
+  
+  std::deque<StoredPointCloud> previous_pointclouds_;
+  
+  // Add tf buffer as member since Filter class doesn't expose it
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+  
+  OnSetParametersCallbackHandle::SharedPtr set_param_res_;
+  rcl_interfaces::msg::SetParametersResult paramCallback(const std::vector<rclcpp::Parameter> & p);
 
-  std::deque<StoredPointCloud> previous_pointclouds_;
-  int num_previous_frames_;
-  double x_min_;
-  double x_max_;
-  double y_min_;
-  double y_max_;
-  double grid_resolution_;
-};
-
-// Node factory declaration
-class PointCloudDensifierNodeFactory
-{
 public:
-  static std::shared_ptr<rclcpp::Node> create(
-    const rclcpp::NodeOptions& options);
+  PCL_MAKE_ALIGNED_OPERATOR_NEW
+  explicit PointCloudDensifierNode(const rclcpp::NodeOptions & options);
 };
 
 }  // namespace autoware::pointcloud_preprocessor

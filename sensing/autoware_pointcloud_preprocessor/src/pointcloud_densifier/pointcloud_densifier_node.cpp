@@ -13,114 +13,125 @@
 // limitations under the License.
 
 #include "autoware/pointcloud_preprocessor/pointcloud_densifier/pointcloud_densifier_node.hpp"
-#include "sensor_msgs/point_cloud2_iterator.hpp"
-#include <chrono>
+
+#include <sensor_msgs/point_cloud2_iterator.hpp>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <tf2_eigen/tf2_eigen.hpp>  // For transformToEigen
+#include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>  // For doTransform with PointCloud2
+
+#include <memory>
+#include <vector>
 
 namespace autoware::pointcloud_preprocessor
 {
 
 PointCloudDensifierNode::PointCloudDensifierNode(const rclcpp::NodeOptions & options)
-: rclcpp::Node("pointcloud_densifier", options),
+: Filter("PointCloudDensifier", options),
+  // Initialize TF buffer
   tf_buffer_(std::make_shared<tf2_ros::Buffer>(this->get_clock())),
   tf_listener_(std::make_shared<tf2_ros::TransformListener>(*tf_buffer_))
 {
-  RCLCPP_INFO(get_logger(), "Node name: %s", get_name());
-  RCLCPP_INFO(get_logger(), "Node namespace: %s", get_namespace());
-  
-  pointcloud_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-    "input", 
-    rclcpp::SensorDataQoS().keep_last(5),
-    std::bind(&PointCloudDensifierNode::onPointCloud, this, std::placeholders::_1));
-
-  pointcloud_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("output", 10);
-  
-  RCLCPP_INFO(get_logger(), "Subscription topic: %s", pointcloud_sub_->get_topic_name());
-  RCLCPP_INFO(get_logger(), "Publishing topic: %s", pointcloud_pub_->get_topic_name());
-  
-  // Load parameters
-  loadParameters();
-}
-
-void PointCloudDensifierNode::loadParameters()
-{
-  // Get parameters without declaring them if they're already declared
-  if (!this->has_parameter("num_previous_frames")) {
-    this->declare_parameter<int>("num_previous_frames", 1);
-  }
-  if (!this->has_parameter("x_min")) {
-    this->declare_parameter<double>("x_min", 80.0);
-  }
-  if (!this->has_parameter("x_max")) {
-    this->declare_parameter<double>("x_max", 200.0);
-  }
-  if (!this->has_parameter("y_min")) {
-    this->declare_parameter<double>("y_min", -20.0);
-  }
-  if (!this->has_parameter("y_max")) {
-    this->declare_parameter<double>("y_max", 20.0);
-  }
-  if (!this->has_parameter("grid_resolution")) {
-    this->declare_parameter<double>("grid_resolution", 0.30);
+  // Initialize debug tools
+  {
+    using autoware::universe_utils::DebugPublisher;
+    using autoware::universe_utils::StopWatch;
+    stop_watch_ptr_ = std::make_unique<StopWatch<std::chrono::milliseconds>>();
+    debug_publisher_ = std::make_unique<DebugPublisher>(this, this->get_name());
+    stop_watch_ptr_->tic("cyclic_time");
+    stop_watch_ptr_->tic("processing_time");
   }
 
-  // Get parameter values
-  num_previous_frames_ = this->get_parameter("num_previous_frames").as_int();
-  x_min_ = this->get_parameter("x_min").as_double();
-  x_max_ = this->get_parameter("x_max").as_double();
-  y_min_ = this->get_parameter("y_min").as_double();
-  y_max_ = this->get_parameter("y_max").as_double();
-  grid_resolution_ = this->get_parameter("grid_resolution").as_double();
-  
-  // Validate parameters
-  if (num_previous_frames_ < 0) {
-    RCLCPP_WARN(get_logger(), "num_previous_frames must be non-negative. Setting to 0.");
-    num_previous_frames_ = 0;
+  // Set initial parameters
+  {
+    param_.num_previous_frames = declare_parameter<int>("num_previous_frames", 1);
+    param_.x_min = declare_parameter<double>("x_min", 80.0);
+    param_.x_max = declare_parameter<double>("x_max", 200.0);
+    param_.y_min = declare_parameter<double>("y_min", -20.0);
+    param_.y_max = declare_parameter<double>("y_max", 20.0);
+    param_.grid_resolution = declare_parameter<double>("grid_resolution", 0.3);
+
+    if (param_.num_previous_frames < 0) {
+      RCLCPP_WARN(get_logger(), "num_previous_frames must be non-negative. Setting to 0.");
+      param_.num_previous_frames = 0;
+    }
+    if (param_.x_min >= param_.x_max || param_.y_min >= param_.y_max) {
+      RCLCPP_ERROR(get_logger(), "Invalid ROI bounds: x_min must be less than x_max, and y_min must be less than y_max");
+      throw std::invalid_argument("Invalid ROI bounds");
+    }
+    if (param_.grid_resolution <= 0.0) {
+      RCLCPP_ERROR(get_logger(), "grid_resolution must be positive");
+      throw std::invalid_argument("Invalid grid resolution");
+    }
   }
-  if (x_min_ >= x_max_ || y_min_ >= y_max_) {
-    RCLCPP_ERROR(get_logger(), "Invalid ROI bounds: x_min must be less than x_max, and y_min must be less than y_max");
-    throw std::invalid_argument("Invalid ROI bounds");
-  }
-  if (grid_resolution_ <= 0.0) {
-    RCLCPP_ERROR(get_logger(), "grid_resolution must be positive");
-    throw std::invalid_argument("Invalid grid resolution");
+
+  // Set parameter service callback
+  {
+    using std::placeholders::_1;
+    set_param_res_ = this->add_on_set_parameters_callback(
+      std::bind(&PointCloudDensifierNode::paramCallback, this, _1));
   }
 }
 
-void PointCloudDensifierNode::onPointCloud(
-  const std::shared_ptr<const sensor_msgs::msg::PointCloud2> & input_msg)
+// Legacy filter implementation - for backward compatibility
+void PointCloudDensifierNode::filter(
+  const PointCloud2ConstPtr & input, const IndicesPtr & indices, PointCloud2 & output)
 {
-  // Measure time
-  auto start_time = std::chrono::high_resolution_clock::now();
+  // This is not used as we're using faster_filter directly
+  (void)input;
+  (void)indices;
+  (void)output;
+}
+
+// Optimized filter implementation using TransformInfo
+void PointCloudDensifierNode::faster_filter(
+  const PointCloud2ConstPtr & input, const IndicesPtr & indices, PointCloud2 & output,
+  const TransformInfo & transform_info)
+{
+  std::scoped_lock lock(mutex_);
+  stop_watch_ptr_->toc("processing_time", true);
+
+  // No need this transformer 
+  (void)transform_info;
 
   // Filter points by ROI
-  auto far_front_pointcloud_ptr = filterPointCloudByROI(input_msg);
+  auto far_front_pointcloud_ptr = filterPointCloudByROI(input, indices);
   
   // Build occupancy grid from the current filtered cloud
-  OccupancyGrid occupancy_grid(x_min_, x_max_, y_min_, y_max_, grid_resolution_);
+  OccupancyGrid occupancy_grid(
+    param_.x_min, param_.x_max, param_.y_min, param_.y_max, param_.grid_resolution);
   occupancy_grid.updateOccupancy(*far_front_pointcloud_ptr);
 
-  // Create and initialize output message with same structure as input
-  auto combined_pointcloud_ptr = std::make_shared<sensor_msgs::msg::PointCloud2>();
-  *combined_pointcloud_ptr = *input_msg;  // Copy metadata and structure
+  // Start with input cloud
+  output = *input;  // Copy metadata and structure
 
   // Transform and merge previous clouds
-  transformAndMergePreviousClouds(input_msg, occupancy_grid, combined_pointcloud_ptr);
+  transformAndMergePreviousClouds(input, occupancy_grid, output);
 
   // Store the current filtered point cloud for future use
-  storeCurrentCloud(far_front_pointcloud_ptr, input_msg->header);
+  storeCurrentCloud(far_front_pointcloud_ptr, input->header);
 
-  // Publish the combined point cloud
-  pointcloud_pub_->publish(*combined_pointcloud_ptr);
+  // Add debug info
+  if (debug_publisher_) {
+    const double cyclic_time_ms = stop_watch_ptr_->toc("cyclic_time", true);
+    const double processing_time_ms = stop_watch_ptr_->toc("processing_time", true);
+    debug_publisher_->publish<autoware_internal_debug_msgs::msg::Float64Stamped>(
+      "debug/cyclic_time_ms", cyclic_time_ms);
+    debug_publisher_->publish<autoware_internal_debug_msgs::msg::Float64Stamped>(
+      "debug/processing_time_ms", processing_time_ms);
 
-  
-  auto end_time = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> elapsed_time = end_time - start_time;
-  RCLCPP_INFO(get_logger(), "Processing time: %f [s]", elapsed_time.count());
-  
+    auto pipeline_latency_ms =
+      std::chrono::duration<double, std::milli>(
+        std::chrono::nanoseconds((this->get_clock()->now() - input->header.stamp).nanoseconds()))
+        .count();
+
+    debug_publisher_->publish<autoware_internal_debug_msgs::msg::Float64Stamped>(
+      "debug/pipeline_latency_ms", pipeline_latency_ms);
+  }
 }
 
 sensor_msgs::msg::PointCloud2::SharedPtr PointCloudDensifierNode::filterPointCloudByROI(
-  const sensor_msgs::msg::PointCloud2::ConstSharedPtr& input_cloud)
+  const PointCloud2ConstPtr & input_cloud, const IndicesPtr & indices)
 {
   auto filtered_cloud = std::make_shared<sensor_msgs::msg::PointCloud2>();
   
@@ -132,30 +143,53 @@ sensor_msgs::msg::PointCloud2::SharedPtr PointCloudDensifierNode::filterPointClo
   filtered_cloud->point_step = input_cloud->point_step;
   filtered_cloud->is_dense = input_cloud->is_dense;
   
+  // Get field offsets
+  int x_offset = input_cloud->fields[pcl::getFieldIndex(*input_cloud, "x")].offset;
+  int y_offset = input_cloud->fields[pcl::getFieldIndex(*input_cloud, "y")].offset;
+  
   // Pre-allocate data for the filtered cloud
   filtered_cloud->data.resize(input_cloud->data.size());
-  
-  // Set up iterators to access x,y coordinates
-  sensor_msgs::PointCloud2ConstIterator<float> iter_x(*input_cloud, "x");
-  sensor_msgs::PointCloud2ConstIterator<float> iter_y(*input_cloud, "y");
-  
-  // Counter for filtered points
   size_t output_size = 0;
   
-  // Iterate through points and filter by ROI
-  for (size_t i = 0; iter_x != iter_x.end(); ++iter_x, ++iter_y, i++) {
-    float x = *iter_x;
-    float y = *iter_y;
-    
-    if (x > x_min_ && x < x_max_ && y > y_min_ && y < y_max_) {
-      // If point is in ROI, copy the entire point data
-      size_t data_offset = i * input_cloud->point_step;
-      std::memcpy(
-        &filtered_cloud->data[output_size],
-        &input_cloud->data[data_offset],
-        input_cloud->point_step
-      );
-      output_size += input_cloud->point_step;
+  // If indices are provided, use them; otherwise, process all points
+  if (indices && !indices->empty()) {
+    for (const auto & idx : *indices) {
+      const size_t data_offset = idx * input_cloud->point_step;
+      
+      // Get x,y coordinates
+      float x, y;
+      std::memcpy(&x, &input_cloud->data[data_offset + x_offset], sizeof(float));
+      std::memcpy(&y, &input_cloud->data[data_offset + y_offset], sizeof(float));
+      
+      if (x > param_.x_min && x < param_.x_max && y > param_.y_min && y < param_.y_max) {
+        // Copy point data if within ROI
+        std::memcpy(
+          &filtered_cloud->data[output_size],
+          &input_cloud->data[data_offset],
+          input_cloud->point_step
+        );
+        output_size += input_cloud->point_step;
+      }
+    }
+  } else {
+    // Process all points if no indices provided
+    for (size_t i = 0; i < input_cloud->width * input_cloud->height; ++i) {
+      const size_t data_offset = i * input_cloud->point_step;
+      
+      // Get x,y coordinates
+      float x, y;
+      std::memcpy(&x, &input_cloud->data[data_offset + x_offset], sizeof(float));
+      std::memcpy(&y, &input_cloud->data[data_offset + y_offset], sizeof(float));
+      
+      if (x > param_.x_min && x < param_.x_max && y > param_.y_min && y < param_.y_max) {
+        // Copy point data if within ROI
+        std::memcpy(
+          &filtered_cloud->data[output_size],
+          &input_cloud->data[data_offset],
+          input_cloud->point_step
+        );
+        output_size += input_cloud->point_step;
+      }
     }
   }
   
@@ -168,10 +202,14 @@ sensor_msgs::msg::PointCloud2::SharedPtr PointCloudDensifierNode::filterPointClo
 }
 
 void PointCloudDensifierNode::transformAndMergePreviousClouds(
-  const sensor_msgs::msg::PointCloud2::ConstSharedPtr& current_msg,
-  const OccupancyGrid& occupancy_grid,
-  sensor_msgs::msg::PointCloud2::SharedPtr& combined_cloud)
+  const PointCloud2ConstPtr & current_msg,
+  const OccupancyGrid & occupancy_grid,
+  PointCloud2 & combined_cloud)
 {
+  // Get field offsets for x,y coordinates
+  int x_offset = current_msg->fields[pcl::getFieldIndex(*current_msg, "x")].offset;
+  int y_offset = current_msg->fields[pcl::getFieldIndex(*current_msg, "y")].offset;
+  
   for (const auto& previous_pointcloud : previous_pointclouds_) {
     if (!previous_pointcloud.cloud || previous_pointcloud.cloud->data.empty()) {
       continue;
@@ -209,62 +247,114 @@ void PointCloudDensifierNode::transformAndMergePreviousClouds(
     sensor_msgs::msg::PointCloud2 transformed_cloud;
     tf2::doTransform(*previous_pointcloud.cloud, transformed_cloud, transform_stamped);
     
-    // Set up iterators for the transformed cloud
-    sensor_msgs::PointCloud2ConstIterator<float> iter_x(transformed_cloud, "x");
-    sensor_msgs::PointCloud2ConstIterator<float> iter_y(transformed_cloud, "y");
+    // Get transformed cloud field offsets
+    x_offset = transformed_cloud.fields[pcl::getFieldIndex(transformed_cloud, "x")].offset;
+    y_offset = transformed_cloud.fields[pcl::getFieldIndex(transformed_cloud, "y")].offset;
+    
+    // Pre-allocate space for potential new points (worst case: all points are added)
+    size_t original_size = combined_cloud.data.size();
+    combined_cloud.data.resize(original_size + transformed_cloud.data.size());
+    size_t output_size = original_size;
     
     // Add previous points only if they fall into occupied grid cells
-    for (size_t i = 0; iter_x != iter_x.end(); ++iter_x, ++iter_y, i++) {
-      float x = *iter_x;
-      float y = *iter_y;
+    for (size_t i = 0; i < transformed_cloud.width; ++i) {
+      size_t data_offset = i * transformed_cloud.point_step;
+      
+      // Get x,y coordinates of transformed point
+      float x, y;
+      std::memcpy(&x, &transformed_cloud.data[data_offset + x_offset], sizeof(float));
+      std::memcpy(&y, &transformed_cloud.data[data_offset + y_offset], sizeof(float));
       
       if (occupancy_grid.isOccupied(x, y)) {
-        // Add this point to the combined cloud
-        size_t data_offset = i * transformed_cloud.point_step;
-        combined_cloud->data.insert(
-          combined_cloud->data.end(),
-          transformed_cloud.data.begin() + data_offset,
-          transformed_cloud.data.begin() + data_offset + transformed_cloud.point_step
+        // Copy point data
+        std::memcpy(
+          &combined_cloud.data[output_size],
+          &transformed_cloud.data[data_offset],
+          transformed_cloud.point_step
         );
+        output_size += transformed_cloud.point_step;
       }
     }
+    
+    // Resize to actual size used
+    combined_cloud.data.resize(output_size);
   }
   
   // Update cloud metadata
-  combined_cloud->width = combined_cloud->data.size() / combined_cloud->point_step;
-  combined_cloud->row_step = combined_cloud->width * combined_cloud->point_step;
-  combined_cloud->height = 1; 
+  combined_cloud.width = combined_cloud.data.size() / combined_cloud.point_step;
+  combined_cloud.row_step = combined_cloud.width * combined_cloud.point_step;
+  combined_cloud.height = 1;  // Unorganized point cloud
 }
 
 void PointCloudDensifierNode::storeCurrentCloud(
-  const sensor_msgs::msg::PointCloud2::SharedPtr& filtered_cloud,
-  const std_msgs::msg::Header& header)
+  const sensor_msgs::msg::PointCloud2::SharedPtr & filtered_cloud,
+  const std_msgs::msg::Header & header)
 {
   StoredPointCloud current_pointcloud;
   current_pointcloud.cloud = filtered_cloud;
   current_pointcloud.header = header;
-  if (previous_pointclouds_.size() >= static_cast<size_t>(num_previous_frames_)) {
+  if (previous_pointclouds_.size() >= static_cast<size_t>(param_.num_previous_frames)) {
     previous_pointclouds_.pop_front();
   }
   previous_pointclouds_.push_back(current_pointcloud);
 }
 
-bool PointCloudDensifierNode::isValidTransform(const Eigen::Matrix4d& transform) const
+bool PointCloudDensifierNode::isValidTransform(const Eigen::Matrix4d & transform) const
 {
   return transform.allFinite() && 
          std::abs(transform.determinant() - 1.0) < 1e-3; // Check if it's a proper rigid transformation
 }
 
-// Factory method implementation
-std::shared_ptr<rclcpp::Node> PointCloudDensifierNodeFactory::create(
-  const rclcpp::NodeOptions& options)
+rcl_interfaces::msg::SetParametersResult PointCloudDensifierNode::paramCallback(
+  const std::vector<rclcpp::Parameter> & p)
 {
-  std::shared_ptr<rclcpp::Node> node = std::make_shared<PointCloudDensifierNode>(options);
-  return node;
+  std::scoped_lock lock(mutex_);
+
+  DensifierParam new_param = param_;
+
+  // Update parameters if changed
+  if (get_param(p, "num_previous_frames", new_param.num_previous_frames)) {
+    if (new_param.num_previous_frames < 0) {
+      new_param.num_previous_frames = 0;
+      RCLCPP_WARN(get_logger(), "num_previous_frames must be non-negative. Setting to 0.");
+    }
+  }
+
+  bool update_grid = false;
+  if (get_param(p, "x_min", new_param.x_min)) update_grid = true;
+  if (get_param(p, "x_max", new_param.x_max)) update_grid = true;
+  if (get_param(p, "y_min", new_param.y_min)) update_grid = true;
+  if (get_param(p, "y_max", new_param.y_max)) update_grid = true;
+  if (get_param(p, "grid_resolution", new_param.grid_resolution)) update_grid = true;
+
+  if (update_grid) {
+    // Validate grid parameters
+    if (new_param.x_min >= new_param.x_max || new_param.y_min >= new_param.y_max) {
+      RCLCPP_ERROR(get_logger(), "Invalid ROI bounds: x_min must be less than x_max, and y_min must be less than y_max");
+      rcl_interfaces::msg::SetParametersResult result;
+      result.successful = false;
+      result.reason = "Invalid ROI bounds";
+      return result;
+    }
+    if (new_param.grid_resolution <= 0.0) {
+      RCLCPP_ERROR(get_logger(), "grid_resolution must be positive");
+      rcl_interfaces::msg::SetParametersResult result;
+      result.successful = false;
+      result.reason = "Invalid grid resolution";
+      return result;
+    }
+  }
+
+  // Apply all valid changes
+  param_ = new_param;
+
+  rcl_interfaces::msg::SetParametersResult result;
+  result.successful = true;
+  result.reason = "success";
+  return result;
 }
 
 }  // namespace autoware::pointcloud_preprocessor
 
-// Register component
-#include "rclcpp_components/register_node_macro.hpp"
+#include <rclcpp_components/register_node_macro.hpp>
 RCLCPP_COMPONENTS_REGISTER_NODE(autoware::pointcloud_preprocessor::PointCloudDensifierNode)
