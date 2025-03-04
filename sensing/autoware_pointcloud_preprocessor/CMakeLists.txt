@@ -90,6 +90,8 @@ ament_auto_add_library(pointcloud_preprocessor_filter SHARED
   src/polygon_remover/polygon_remover.cpp
   src/vector_map_filter/vector_map_inside_area_filter_node.cpp
   src/utility/geometry.cpp
+  src/pointcloud_densifier/pointcloud_densifier_node.cpp
+  src/pointcloud_densifier/occupancy_grid.cpp
 )
 
 target_link_libraries(pointcloud_preprocessor_filter
@@ -205,6 +207,17 @@ target_link_libraries(polygon_remover_node gmp CGAL CGAL::CGAL CGAL::CGAL_Core)
 rclcpp_components_register_node(pointcloud_preprocessor_filter
   PLUGIN "autoware::pointcloud_preprocessor::VectorMapInsideAreaFilterComponent"
   EXECUTABLE vector_map_inside_area_filter_node)
+
+# ========== Pointcloud Densifier ==========
+rclcpp_components_register_node(pointcloud_preprocessor_filter
+  PLUGIN "autoware::pointcloud_preprocessor::PointCloudDensifierNode"
+  EXECUTABLE pointcloud_densifier_node)
+
+# Make sure launch directory is installed
+install(DIRECTORY
+  launch
+  DESTINATION share/${PROJECT_NAME}/
+)
 
 install(
   TARGETS pointcloud_preprocessor_filter_base EXPORT export_${PROJECT_NAME}
