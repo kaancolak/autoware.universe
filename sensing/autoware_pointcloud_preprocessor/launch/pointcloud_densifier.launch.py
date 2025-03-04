@@ -25,7 +25,6 @@ def generate_launch_description():
     pkg_prefix = get_package_share_directory('autoware_pointcloud_preprocessor')
     config_file = os.path.join(pkg_prefix, 'config/pointcloud_densifier.param.yaml')
 
-    # Declare arguments that might be overridden at launch time
     input_topic = DeclareLaunchArgument(
         "input_topic",
         default_value="/sensing/lidar/concatenated/pointcloud",
@@ -39,7 +38,6 @@ def generate_launch_description():
     )
 
     # Create the composable node
-    # We're now using the component directly since the node inherits from Filter
     component = ComposableNode(
         package="autoware_pointcloud_preprocessor",
         plugin="autoware::pointcloud_preprocessor::PointCloudDensifierNode",
