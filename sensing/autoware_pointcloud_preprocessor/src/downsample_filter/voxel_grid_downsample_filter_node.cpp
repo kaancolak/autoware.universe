@@ -69,7 +69,7 @@ VoxelGridDownsampleFilterComponent::VoxelGridDownsampleFilterComponent(
     voxel_size_x_ = declare_parameter<float>("voxel_size_x");
     voxel_size_y_ = declare_parameter<float>("voxel_size_y");
     voxel_size_z_ = declare_parameter<float>("voxel_size_z");
-    
+
     // ROI parameters - with defaults matching what was in roi_excluded node
     enable_roi_exclusion_ = declare_parameter<bool>("enable_roi_exclusion", false);
     roi_x_min_ = declare_parameter<float>("roi_x_min", 80.0);
@@ -115,7 +115,8 @@ void VoxelGridDownsampleFilterComponent::faster_filter(
   std::scoped_lock lock(mutex_);
   FasterVoxelGridDownsampleFilter faster_voxel_filter;
   faster_voxel_filter.set_voxel_size(voxel_size_x_, voxel_size_y_, voxel_size_z_);
-  faster_voxel_filter.set_roi_parameters(roi_x_min_, roi_x_max_, roi_y_min_, roi_y_max_, enable_roi_exclusion_);
+  faster_voxel_filter.set_roi_parameters(
+    roi_x_min_, roi_x_max_, roi_y_min_, roi_y_max_, enable_roi_exclusion_);
   faster_voxel_filter.set_field_offsets(input, this->get_logger());
   faster_voxel_filter.filter(input, output, transform_info, this->get_logger());
 }
@@ -134,10 +135,11 @@ rcl_interfaces::msg::SetParametersResult VoxelGridDownsampleFilterComponent::par
   if (get_param(p, "voxel_size_z", voxel_size_z_)) {
     RCLCPP_DEBUG(get_logger(), "Setting new distance threshold to: %f.", voxel_size_z_);
   }
-  
+
   // Handle ROI parameters
   if (get_param(p, "enable_roi_exclusion", enable_roi_exclusion_)) {
-    RCLCPP_DEBUG(get_logger(), "Setting ROI exclusion to: %s", enable_roi_exclusion_ ? "enabled" : "disabled");
+    RCLCPP_DEBUG(
+      get_logger(), "Setting ROI exclusion to: %s", enable_roi_exclusion_ ? "enabled" : "disabled");
   }
   if (get_param(p, "roi_x_min", roi_x_min_)) {
     RCLCPP_DEBUG(get_logger(), "Setting ROI x_min to: %f", roi_x_min_);

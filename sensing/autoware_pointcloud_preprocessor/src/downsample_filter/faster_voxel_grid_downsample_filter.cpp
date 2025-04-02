@@ -62,7 +62,8 @@ void FasterVoxelGridDownsampleFilter::set_field_offsets(
   offset_initialized_ = true;
 }
 
-void FasterVoxelGridDownsampleFilter::set_roi_parameters(float x_min, float x_max, float y_min, float y_max, bool enable_roi_exclusion)
+void FasterVoxelGridDownsampleFilter::set_roi_parameters(
+  float x_min, float x_max, float y_min, float y_max, bool enable_roi_exclusion)
 {
   roi_x_min_ = x_min;
   roi_x_max_ = x_max;
@@ -114,7 +115,7 @@ void FasterVoxelGridDownsampleFilter::filter(
     std::vector<uint8_t> filtered_buffer;
     std::vector<uint8_t> direct_buffer;
     const size_t point_step = input->point_step;
-    
+
     for (size_t offset = 0; offset + point_step <= input->data.size(); offset += point_step) {
       Eigen::Vector4f point = get_point_from_global_offset(input, offset);
       // If point is inside ROI, bypass filtering
