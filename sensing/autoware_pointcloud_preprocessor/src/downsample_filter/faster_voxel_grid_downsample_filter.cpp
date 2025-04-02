@@ -16,6 +16,9 @@
 
 #include <cfloat>
 #include <unordered_map>
+#include <vector>
+#include <memory>
+
 
 namespace autoware::pointcloud_preprocessor
 {
