@@ -15,10 +15,9 @@
 #include "autoware/pointcloud_preprocessor/downsample_filter/faster_voxel_grid_downsample_filter.hpp"
 
 #include <cfloat>
+#include <memory>
 #include <unordered_map>
 #include <vector>
-#include <memory>
-
 
 namespace autoware::pointcloud_preprocessor
 {
