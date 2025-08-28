@@ -46,7 +46,6 @@ void GridProcessor::processLanelets(const lanelet::LaneletMapPtr & lanelet_map)
 
 GridIndex GridProcessor::getGridIndex(double x, double y) const
 {
-  // Use precomputed inverse resolution for speed
   GridIndex index;
   index.x = static_cast<int>(x * inv_grid_resolution_);
   index.y = static_cast<int>(y * inv_grid_resolution_);
@@ -93,15 +92,13 @@ void GridProcessor::processLaneletBoundary(const lanelet::Lanelet & lanelet)
   
   // Sample points from centerline if available
   if (lanelet.hasAttribute(lanelet::AttributeName::Subtype)) {
-    try {
-      auto centerline = lanelet.centerline();
-      auto center_points = samplePointsFromLineString(centerline, sampling_distance);
-      for (const auto & point : center_points) {
-        addPointToGrid(point.x, point.y, point.z);
-      }
-    } catch (...) {
-      // Centerline might not be available, continue without it
+    
+    auto centerline = lanelet.centerline();
+    auto center_points = samplePointsFromLineString(centerline, sampling_distance);
+    for (const auto & point : center_points) {
+      addPointToGrid(point.x, point.y, point.z);
     }
+    
   }
 }
 
@@ -186,7 +183,6 @@ double GridProcessor::getElevationAtPoint(double x, double y) const
     return elevation;
   }
   
-  // For missing cells, use fast nearest neighbor instead of expensive interpolation
   double min_distance = std::numeric_limits<double>::max();
   double nearest_elevation = 0.0;
   bool found_neighbor = false;
@@ -202,9 +198,7 @@ double GridProcessor::getElevationAtPoint(double x, double y) const
       
       auto neighbor_it = grid_cells_.find(neighbor_index);
       if (neighbor_it != grid_cells_.end() && neighbor_it->second.is_valid) {
-        // Use Manhattan distance for speed (avoid sqrt)
         double distance = std::abs(dx) + std::abs(dy);
-        
         if (distance < min_distance) {
           min_distance = distance;
           nearest_elevation = neighbor_it->second.average_height;
