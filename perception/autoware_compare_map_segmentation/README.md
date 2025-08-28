@@ -67,27 +67,27 @@ The filter processes lanelet maps to extract elevation information at regular gr
 
 #### Input
 
-| Name                     | Type                                     | Description              |
-| ------------------------ | ---------------------------------------- | ------------------------ |
-| `~/input/pointcloud`     | `sensor_msgs::msg::PointCloud2`         | input point cloud        |
-| `~/input/lanelet_map`    | `autoware_map_msgs::msg::LaneletMapBin` | lanelet map              |
+| Name                  | Type                                    | Description       |
+| --------------------- | --------------------------------------- | ----------------- |
+| `~/input/pointcloud`  | `sensor_msgs::msg::PointCloud2`         | input point cloud |
+| `~/input/lanelet_map` | `autoware_map_msgs::msg::LaneletMapBin` | lanelet map       |
 
 #### Output
 
-| Name                      | Type                                     | Description                      |
-| ------------------------- | ---------------------------------------- | -------------------------------- |
-| `~/output/pointcloud`     | `sensor_msgs::msg::PointCloud2`         | filtered point cloud             |
-| `~/debug/elevation_markers` | `visualization_msgs::msg::MarkerArray` | elevation grid visualization     |
+| Name                        | Type                                   | Description                  |
+| --------------------------- | -------------------------------------- | ---------------------------- |
+| `~/output/pointcloud`       | `sensor_msgs::msg::PointCloud2`        | filtered point cloud         |
+| `~/debug/elevation_markers` | `visualization_msgs::msg::MarkerArray` | elevation grid visualization |
 
 #### Parameters
 
-| Name                     | Type   | Description                                                              | Default value |
-| :----------------------- | :----- | :----------------------------------------------------------------------- | :------------ |
-| `grid_resolution`        | double | Grid cell size in meters for elevation processing                       | 1.0           |
-| `height_threshold`       | double | Maximum height difference from lanelet elevation (meters)               | 2.0           |
-| `sampling_distance`      | double | Distance between sampled points along lanelet boundaries (meters)       | 0.5           |
-| `target_frame`           | string | Target coordinate frame for processing                                   | map           |
-| `enable_debug_markers`   | bool   | Enable elevation grid visualization markers for RViz                     | false         |
+| Name                   | Type   | Description                                                       | Default value |
+| :--------------------- | :----- | :---------------------------------------------------------------- | :------------ |
+| `grid_resolution`      | double | Grid cell size in meters for elevation processing                 | 1.0           |
+| `height_threshold`     | double | Maximum height difference from lanelet elevation (meters)         | 2.0           |
+| `sampling_distance`    | double | Distance between sampled points along lanelet boundaries (meters) | 0.5           |
+| `target_frame`         | string | Target coordinate frame for processing                            | map           |
+| `enable_debug_markers` | bool   | Enable elevation grid visualization markers for RViz              | false         |
 
 ### Other Filters
 

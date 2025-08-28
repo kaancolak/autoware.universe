@@ -22,14 +22,14 @@
 #include <autoware_utils/system/stop_watch.hpp>
 #include <rclcpp/rclcpp.hpp>
 
-#include <autoware_map_msgs/msg/lanelet_map_bin.hpp>
 #include <autoware_internal_debug_msgs/msg/float64_stamped.hpp>
+#include <autoware_map_msgs/msg/lanelet_map_bin.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
+#include <chrono>
 #include <memory>
 #include <string>
-#include <chrono>
 
 namespace autoware::compare_map_segmentation
 {
@@ -55,20 +55,20 @@ private:
   // Parameters and state
   LaneletElevationFilterParams params_;
   std::unique_ptr<LaneletElevationFilter> filter_;
-  
+
   // Map subscription
   rclcpp::Subscription<autoware_map_msgs::msg::LaneletMapBin>::SharedPtr map_sub_;
-  
+
   // Debug publishers
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_markers_pub_;
   std::unique_ptr<autoware_utils::DebugPublisher> debug_publisher_;
-  
+
   // Timing utilities
   std::unique_ptr<autoware_utils::StopWatch<std::chrono::milliseconds>> stop_watch_ptr_;
-  
+
   // Parameter loading
   void loadParameters();
-  
+
   // Debug functions
   void printParameters();
 };

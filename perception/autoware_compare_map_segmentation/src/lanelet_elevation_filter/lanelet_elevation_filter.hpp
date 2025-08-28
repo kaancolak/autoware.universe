@@ -43,10 +43,10 @@ public:
   explicit LaneletElevationFilter(const LaneletElevationFilterParams & params);
 
   void setLaneletMap(const autoware_map_msgs::msg::LaneletMapBin::ConstSharedPtr & map_msg);
-  
+
   // Debug/Visualization methods
   visualization_msgs::msg::MarkerArray createDebugMarkers(const rclcpp::Time & stamp) const;
-  
+
   // Accessor for grid processor (for direct filtering)
   std::shared_ptr<GridProcessor> getGridProcessor() const { return grid_processor_; }
 
@@ -55,7 +55,7 @@ private:
   std::shared_ptr<GridProcessor> grid_processor_;
   lanelet::LaneletMapPtr lanelet_map_;
   bool map_initialized_;
-  
+
   void initializeGridFromMap();
 };
 
