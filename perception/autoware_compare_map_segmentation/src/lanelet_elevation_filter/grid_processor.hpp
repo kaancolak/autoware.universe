@@ -16,6 +16,7 @@
 #define LANELET_ELEVATION_FILTER__GRID_PROCESSOR_HPP_
 
 #include <geometry_msgs/msg/point.hpp>
+#include <rclcpp/rclcpp.hpp>
 
 #include <lanelet2_core/LaneletMap.h>
 #include <lanelet2_core/geometry/Lanelet.h>
@@ -23,6 +24,8 @@
 
 #include <unordered_map>
 #include <vector>
+#include <string>
+#include <fstream>
 
 namespace autoware::compare_map_segmentation
 {
@@ -55,7 +58,9 @@ class GridProcessor
 public:
   explicit GridProcessor(double grid_resolution);
 
-  void processLanelets(const lanelet::LaneletMapPtr & lanelet_map);
+  void processLanelets(const lanelet::LaneletMapPtr & lanelet_map, int extension_count = 20);
+
+  void processLaneletsWithCache(const lanelet::LaneletMapPtr & lanelet_map, double sampling_distance, int extension_size = 20, const std::string & cache_directory = "");
 
   double getElevationAtPoint(double x, double y) const;
 
@@ -73,12 +78,20 @@ private:
   double inv_grid_resolution_;  // Precomputed 1/grid_resolution for performance
   std::unordered_map<GridIndex, GridCell, GridIndexHash> grid_cells_;
 
-  // Performance optimization: cache for elevation lookups
   mutable std::unordered_map<GridIndex, double, GridIndexHash> elevation_cache_;
+  
+  // Logger for this class
+  rclcpp::Logger logger_;
 
   GridIndex getGridIndex(double x, double y) const;
 
   void addPointToGrid(double x, double y, double z);
+
+  void fillEmptyGrids(int extension_radius);
+
+  double calculateAverageElevationFromNeighbors(const GridIndex & index) const;
+
+  double interpolateElevationFromNeighbors(const GridIndex & index) const;
 
   void calculateGridStatistics();
 
@@ -86,6 +99,13 @@ private:
 
   std::vector<geometry_msgs::msg::Point> samplePointsFromLineString(
     const lanelet::ConstLineString3d & linestring, double sampling_distance) const;
+
+  // Cache-related functions
+  std::string generateCacheFilename(const lanelet::LaneletMapPtr & lanelet_map, double sampling_distance, int extension_size, const std::string & cache_directory) const;
+
+  bool loadGridFromCache(const std::string & cache_filename);
+
+  void saveGridToCache(const std::string & cache_filename) const;
 };
 
 }  // namespace autoware::compare_map_segmentation

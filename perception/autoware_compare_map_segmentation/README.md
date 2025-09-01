@@ -36,7 +36,9 @@ This filter is a combination of the distance_based_compare_map_filter and voxel_
 
 The Lanelet Elevation Filter filters point clouds based on lanelet elevation information. It creates a grid-based elevation map from lanelet data and filters out points that deviate significantly from the expected road surface height. This filter is useful for removing floating objects, overpass structures, and other non-road elements that should not be considered for ground-level navigation.
 
-The filter processes lanelet maps to extract elevation information at regular grid intervals and uses this information to validate incoming point cloud data. Points that are too far above or below the expected lanelet surface elevation are filtered out.
+The filter processes lanelet maps to extract elevation information at regular grid intervals and uses this information to validate incoming point cloud data. Points that are too far above or below the expected lanelet surface elevation are filtered out. 
+
+If incoming point cloud frame differs from target_frame, points will be  transformed to target_frame before elevation check.            
 
 ## Inputs / Outputs
 
@@ -86,7 +88,7 @@ The filter processes lanelet maps to extract elevation information at regular gr
 | `grid_resolution`      | double | Grid cell size in meters for elevation processing                 | 1.0           |
 | `height_threshold`     | double | Maximum height difference from lanelet elevation (meters)         | 2.0           |
 | `sampling_distance`    | double | Distance between sampled points along lanelet boundaries (meters) | 0.5           |
-| `target_frame`         | string | Target coordinate frame for processing                            | map           |
+| `target_frame`         | string | Target coordinate frame for processing, should be same with lanelet map frame                            | map           |
 | `enable_debug_markers` | bool   | Enable elevation grid visualization markers for RViz              | false         |
 
 ### Other Filters

@@ -14,7 +14,9 @@
 
 #include "node.hpp"
 
+#include <autoware/pointcloud_preprocessor/transform_info.hpp>
 #include <autoware_utils/ros/parameter.hpp>
+#include <ament_index_cpp/get_package_share_directory.hpp>
 
 #include <autoware_internal_debug_msgs/msg/float64_stamped.hpp>
 
@@ -23,6 +25,7 @@
 
 #include <chrono>
 #include <memory>
+#include <filesystem>
 
 namespace autoware::compare_map_segmentation
 {
@@ -33,27 +36,16 @@ LaneletElevationFilterComponent::LaneletElevationFilterComponent(
 {
   loadParameters();
 
-  // Initialize the filter
   filter_ = std::make_unique<LaneletElevationFilter>(params_);
 
-  // Initialize timing utilities following fusion node pattern
-  stop_watch_ptr_ = std::make_unique<autoware_utils::StopWatch<std::chrono::milliseconds>>();
-
-  // Initialize debug publisher if enabled
   if (params_.enable_debug) {
-    try {
-      // Initialize DebugPublisher following fusion node pattern
-      debug_publisher_ = std::make_unique<autoware_utils::DebugPublisher>(this, get_name());
 
-      // Initialize debug markers publisher
-      debug_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
-        "~/debug/elevation_grid_markers", rclcpp::QoS(1).transient_local());
+    stop_watch_ptr_ = std::make_unique<autoware_utils::StopWatch<std::chrono::milliseconds>>();
+    debug_publisher_ = std::make_unique<autoware_utils::DebugPublisher>(this, get_name());
 
-      RCLCPP_INFO(this->get_logger(), "Debug publishers initialized");
-    } catch (const std::exception & e) {
-      RCLCPP_WARN(this->get_logger(), "Failed to initialize debug publishers: %s", e.what());
-      params_.enable_debug = false;  // Disable debug mode if initialization fails
-    }
+    debug_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
+      "~/debug/elevation_grid_markers", rclcpp::QoS(1).transient_local());
+    RCLCPP_INFO(this->get_logger(), "Debug publishers initialized");
   }
 
   // Subscribe to lanelet map
@@ -72,7 +64,9 @@ void LaneletElevationFilterComponent::printParameters()
   RCLCPP_INFO(this->get_logger(), "Grid resolution: %.2f m", params_.grid_resolution);
   RCLCPP_INFO(this->get_logger(), "Height threshold: %.2f m", params_.height_threshold);
   RCLCPP_INFO(this->get_logger(), "Sampling distance: %.2f m", params_.sampling_distance);
+  RCLCPP_INFO(this->get_logger(), "Extension count: %d cells", params_.extension_count);
   RCLCPP_INFO(this->get_logger(), "Target frame: %s", params_.target_frame.c_str());
+  RCLCPP_INFO(this->get_logger(), "Cache directory: %s", params_.cache_directory.empty() ? "/tmp/autoware_lanelet_cache/" : params_.cache_directory.c_str());
   RCLCPP_INFO(this->get_logger(), "Debug mode: %s", params_.enable_debug ? "enabled" : "disabled");
 }
 
@@ -83,7 +77,25 @@ void LaneletElevationFilterComponent::loadParameters()
   params_.height_threshold = this->declare_parameter<double>("height_threshold", 2.0);
   params_.sampling_distance = this->declare_parameter<double>("sampling_distance", 0.5);
   params_.target_frame = this->declare_parameter<std::string>("target_frame", "map");
+  params_.cache_directory = this->declare_parameter<std::string>("cache_directory", "$(find-pkg-share autoware_compare_map_segmentation)/data/lanelet_grid_cache");
   params_.enable_debug = this->declare_parameter<bool>("enable_debug", false);
+  params_.extension_count = this->declare_parameter<int>("extension_count", 20);
+  
+  // Resolve ROS package path 
+  if (params_.cache_directory.find("$(find-pkg-share") != std::string::npos) {
+    std::string resolved_cache_dir = resolvePackageSharePath(params_.cache_directory);
+    if (!resolved_cache_dir.empty()) {
+      params_.cache_directory = resolved_cache_dir;
+    } else {
+      RCLCPP_WARN(this->get_logger(), "Failed to resolve cache directory: %s, using fallback", params_.cache_directory.c_str());
+      params_.cache_directory = "/tmp/autoware_lanelet_cache";
+    }
+  }
+  
+  // Ensure cache directory is set to a reliable path
+  if (params_.cache_directory.empty()) {
+    params_.cache_directory = "/tmp/autoware_lanelet_cache";
+  }
 
   // Validate parameters
   if (params_.grid_resolution <= 0.0) {
@@ -94,6 +106,9 @@ void LaneletElevationFilterComponent::loadParameters()
   }
   if (params_.sampling_distance <= 0.0) {
     throw std::invalid_argument("sampling_distance must be positive");
+  }
+  if (params_.extension_count < 0) {
+    throw std::invalid_argument("extension_count must be non-negative");
   }
 }
 
@@ -123,10 +138,22 @@ void LaneletElevationFilterComponent::filter(
     return;
   }
 
-  // Use similar direct processing as other filters
-  int point_step = input->point_step;
+  tf_input_orig_frame_ = input->header.frame_id;
 
-  // Check if the input has valid fields
+  TransformInfo transform_info;
+  transform_info.need_transform = false;
+  
+  if (!params_.target_frame.empty() && input->header.frame_id != params_.target_frame) {
+    if (!managed_tf_buffer_->get_transform(
+          tf_input_frame_, input->header.frame_id, transform_info.eigen_transform)) {
+      RCLCPP_ERROR(this->get_logger(), "Failed to get transformation matrix");
+      output = *input;
+      return;
+    }
+    transform_info.need_transform = true;
+  }
+
+  int point_step = input->point_step;
   if (input->fields.empty()) {
     RCLCPP_ERROR(this->get_logger(), "Input point cloud has no fields");
     output = *input;
@@ -159,24 +186,35 @@ void LaneletElevationFilterComponent::filter(
     std::memcpy(&point.y, &input->data[global_offset + offset_y], sizeof(float));
     std::memcpy(&point.z, &input->data[global_offset + offset_z], sizeof(float));
 
-    // Check if point is finite and within elevation threshold
     if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z)) {
       continue;
     }
 
+    float transformed_x = point.x;
+    float transformed_y = point.y;
+    float transformed_z = point.z;
+    
+    if (transform_info.need_transform) {
+      Eigen::Vector4f point_eigen(point.x, point.y, point.z, 1.0f);
+      Eigen::Vector4f transformed_point = transform_info.eigen_transform * point_eigen;
+      
+      transformed_x = transformed_point(0);
+      transformed_y = transformed_point(1);
+      transformed_z = transformed_point(2);
+    }
+
     try {
-      if (filter_->getGridProcessor()->isPointValid(point.x, point.y, point.z, height_threshold)) {
+      if (filter_->getGridProcessor()->isPointValid(transformed_x, transformed_y, transformed_z, height_threshold)) {
         std::memcpy(&output.data[output_size], &input->data[global_offset], point_step);
         output_size += point_step;
       }
     } catch (const std::exception & e) {
-      // If there's an error with grid processing, include the point to be safe
       std::memcpy(&output.data[output_size], &input->data[global_offset], point_step);
       output_size += point_step;
     }
   }
 
-  // Set output cloud properties
+  // Set output cloud 
   output.header = input->header;
   output.fields = input->fields;
   output.data.resize(output_size);
@@ -191,7 +229,6 @@ void LaneletElevationFilterComponent::filter(
     try {
       const double processing_time_ms = stop_watch_ptr_->toc("processing_time", true);
 
-      // Create Float64Stamped message following fusion node pattern
       autoware_internal_debug_msgs::msg::Float64Stamped processing_time_msg;
       processing_time_msg.stamp = input->header.stamp;
       processing_time_msg.data = processing_time_ms;
@@ -199,7 +236,6 @@ void LaneletElevationFilterComponent::filter(
       debug_publisher_->publish<autoware_internal_debug_msgs::msg::Float64Stamped>(
         "debug/processing_time_ms", processing_time_msg);
 
-      RCLCPP_DEBUG(this->get_logger(), "Published processing time: %.2f ms", processing_time_ms);
     } catch (const std::exception & e) {
       RCLCPP_WARN_THROTTLE(
         this->get_logger(), *this->get_clock(), 5000, "Failed to publish debug processing time: %s",
@@ -212,30 +248,62 @@ void LaneletElevationFilterComponent::onMap(
   const autoware_map_msgs::msg::LaneletMapBin::ConstSharedPtr & msg)
 {
   try {
-    RCLCPP_INFO(this->get_logger(), "Received lanelet map, processing...");
-
-    const auto start_time = this->now();
+    const auto start_time = std::chrono::high_resolution_clock::now();
 
     // Set the lanelet map in the filter
     filter_->setLaneletMap(msg);
-    const auto end_time = this->now();
-
-    const auto processing_time = (end_time - start_time).seconds() * 1000.0;
+    
+    const auto end_time = std::chrono::high_resolution_clock::now();
+    const auto processing_time = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+    const double processing_time_ms = processing_time.count() / 1000.0;
 
     RCLCPP_INFO(
-      this->get_logger(), "Lanelet map processed successfully in %.2f ms", processing_time);
+      this->get_logger(), "Lanelet map processed successfully in %.2f ms", processing_time_ms);
 
     // Publish debug markers created by the lanelet elevation filter
     if (params_.enable_debug && debug_markers_pub_) {
       auto marker_array = filter_->createDebugMarkers(this->now());
       if (!marker_array.markers.empty()) {
         debug_markers_pub_->publish(marker_array);
-        RCLCPP_INFO(
-          this->get_logger(), "Published %zu debug elevation markers", marker_array.markers.size());
       }
     }
   } catch (const std::exception & e) {
     RCLCPP_ERROR(this->get_logger(), "Failed to process lanelet map: %s", e.what());
+  }
+}
+
+std::string LaneletElevationFilterComponent::resolvePackageSharePath(const std::string & path)
+{
+  // Look for $(find-pkg-share package_name) pattern
+  size_t start = path.find("$(find-pkg-share ");
+  if (start == std::string::npos) {
+    return path; // No substitution needed
+  }
+  
+  size_t package_start = start + strlen("$(find-pkg-share ");
+  size_t package_end = path.find(")", package_start);
+  if (package_end == std::string::npos) {
+    RCLCPP_ERROR(this->get_logger(), "Invalid $(find-pkg-share) syntax in path: %s", path.c_str());
+    return "";
+  }
+  
+  std::string package_name = path.substr(package_start, package_end - package_start);
+  
+  try {
+    // Get the package share directory
+    std::string package_share_dir = ament_index_cpp::get_package_share_directory(package_name);
+    
+    // Replace the substitution with the actual path
+    std::string resolved_path = path;
+    resolved_path.replace(start, package_end - start + 1, package_share_dir);
+    
+    // Create the directory if it doesn't exist
+    std::filesystem::create_directories(resolved_path);
+    
+    return resolved_path;
+  } catch (const std::exception & e) {
+    RCLCPP_ERROR(this->get_logger(), "Failed to resolve package '%s': %s", package_name.c_str(), e.what());
+    return "";
   }
 }
 

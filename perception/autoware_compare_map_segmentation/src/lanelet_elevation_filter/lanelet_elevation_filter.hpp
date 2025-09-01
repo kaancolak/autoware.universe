@@ -34,7 +34,9 @@ struct LaneletElevationFilterParams
   double height_threshold;
   double sampling_distance;
   std::string target_frame;
+  std::string cache_directory;
   bool enable_debug;
+  int extension_count;
 };
 
 class LaneletElevationFilter

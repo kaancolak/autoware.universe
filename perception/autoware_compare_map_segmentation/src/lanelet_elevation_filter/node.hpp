@@ -18,6 +18,7 @@
 #include "lanelet_elevation_filter.hpp"
 
 #include <autoware/pointcloud_preprocessor/filter.hpp>
+#include <autoware/pointcloud_preprocessor/transform_info.hpp>
 #include <autoware_utils/ros/debug_publisher.hpp>
 #include <autoware_utils/system/stop_watch.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -39,31 +40,25 @@ class LaneletElevationFilterComponent : public autoware::pointcloud_preprocessor
   using PointCloud2 = sensor_msgs::msg::PointCloud2;
   using PointCloud2ConstPtr = sensor_msgs::msg::PointCloud2::ConstSharedPtr;
   using IndicesPtr = pcl::IndicesPtr;
+  using TransformInfo = autoware::pointcloud_preprocessor::TransformInfo;
 
 public:
   explicit LaneletElevationFilterComponent(const rclcpp::NodeOptions & node_options);
 
 private:
-  // Filter implementation
   void filter(
     const PointCloud2ConstPtr & input, [[maybe_unused]] const IndicesPtr & indices,
     PointCloud2 & output) override;
 
-  // Map handling
   void onMap(const autoware_map_msgs::msg::LaneletMapBin::ConstSharedPtr & msg);
 
-  // Parameters and state
   LaneletElevationFilterParams params_;
   std::unique_ptr<LaneletElevationFilter> filter_;
 
-  // Map subscription
   rclcpp::Subscription<autoware_map_msgs::msg::LaneletMapBin>::SharedPtr map_sub_;
-
-  // Debug publishers
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr debug_markers_pub_;
-  std::unique_ptr<autoware_utils::DebugPublisher> debug_publisher_;
 
-  // Timing utilities
+  std::unique_ptr<autoware_utils::DebugPublisher> debug_publisher_;
   std::unique_ptr<autoware_utils::StopWatch<std::chrono::milliseconds>> stop_watch_ptr_;
 
   // Parameter loading
@@ -71,6 +66,9 @@ private:
 
   // Debug functions
   void printParameters();
+  
+  // Utility functions
+  std::string resolvePackageSharePath(const std::string & path);
 };
 
 }  // namespace autoware::compare_map_segmentation
