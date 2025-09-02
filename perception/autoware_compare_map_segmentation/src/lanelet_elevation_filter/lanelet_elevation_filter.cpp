@@ -51,7 +51,8 @@ void LaneletElevationFilter::initializeGridFromMap()
     return;
   }
 
-  grid_processor_->processLaneletsWithCache(lanelet_map_, params_.sampling_distance, params_.extension_count, params_.cache_directory);
+  grid_processor_->processLaneletsWithCache(
+    lanelet_map_, params_.sampling_distance, params_.extension_count, params_.cache_directory);
 }
 
 visualization_msgs::msg::MarkerArray LaneletElevationFilter::createDebugMarkers(

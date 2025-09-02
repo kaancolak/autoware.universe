@@ -14,24 +14,26 @@
 
 #include "grid_processor.hpp"
 
-#include <lanelet2_core/geometry/Lanelet.h>
 #include <rclcpp/rclcpp.hpp>
+
+#include <lanelet2_core/geometry/Lanelet.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
-#include <fstream>
-#include <sstream>
-#include <iomanip>
 #include <cstdlib>
-#include <sys/stat.h>
-#include <sys/types.h>
+#include <fstream>
+#include <iomanip>
+#include <limits>
+#include <sstream>
 
 namespace autoware::compare_map_segmentation
 {
 
 GridProcessor::GridProcessor(double grid_resolution)
-: grid_resolution_(grid_resolution), inv_grid_resolution_(1.0 / grid_resolution),
+: grid_resolution_(grid_resolution),
+  inv_grid_resolution_(1.0 / grid_resolution),
   logger_(rclcpp::get_logger("grid_processor"))
 {
 }
@@ -97,35 +99,39 @@ void GridProcessor::fillEmptyGrids(int extension_radius)
   }
 
   // Safety limits to prevent excessive memory usage and processing time
-  const size_t MAX_GRID_CELLS = 1000000; // 1 million cells max
-  const size_t MAX_CELLS_PER_RADIUS = 100000; // 100k cells per radius max
-  const size_t MAX_TOTAL_EXTENSIONS = 500000; // 500k total extension cells max
-  
+  const size_t MAX_GRID_CELLS = 1000000;       // 1 million cells max
+  const size_t MAX_CELLS_PER_RADIUS = 100000;  // 100k cells per radius max
+  const size_t MAX_TOTAL_EXTENSIONS = 500000;  // 500k total extension cells max
+
   size_t total_extensions_added = 0;
-  
+
   // Fill grids in multiple passes, from closest to farthest
   // This allows later extensions to use previously filled cells for better interpolation
   for (int radius = 1; radius <= extension_radius; ++radius) {
     size_t cells_added_this_radius = 0;
     bool radius_limit_reached = false;
-    
+
     for (const auto & center_index : original_indices) {
       if (radius_limit_reached) {
-        break; // Exit the center_index loop if radius limit was reached
+        break;  // Exit the center_index loop if radius limit was reached
       }
-      
+
       // Safety check - if we have too many cells, stop processing
       if (grid_cells_.size() > MAX_GRID_CELLS) {
-        RCLCPP_WARN(logger_, "Grid size limit reached (%zu cells), stopping extension at radius %d", grid_cells_.size(), radius);
+        RCLCPP_WARN(
+          logger_, "Grid size limit reached (%zu cells), stopping extension at radius %d",
+          grid_cells_.size(), radius);
         return;
       }
-      
+
       // Safety check - if we've added too many extension cells in total, stop
       if (total_extensions_added > MAX_TOTAL_EXTENSIONS) {
-        RCLCPP_WARN(logger_, "Total extension limit reached (%zu extensions), stopping at radius %d", total_extensions_added, radius);
+        RCLCPP_WARN(
+          logger_, "Total extension limit reached (%zu extensions), stopping at radius %d",
+          total_extensions_added, radius);
         return;
       }
-      
+
       // Fill cells at current radius distance
       for (int dx = -radius; dx <= radius && !radius_limit_reached; ++dx) {
         for (int dy = -radius; dy <= radius && !radius_limit_reached; ++dy) {
@@ -140,37 +146,39 @@ void GridProcessor::fillEmptyGrids(int extension_radius)
           auto it = grid_cells_.find(extended_index);
           if (it == grid_cells_.end()) {
             grid_cells_[extended_index] = GridCell();
-            
+
             // Calculate elevation as weighted average of neighboring valid cells
             double elevation = calculateAverageElevationFromNeighbors(extended_index);
-            
+
             // Calculate the world coordinates for this extended grid cell
             double extended_x = extended_index.x * grid_resolution_;
             double extended_y = extended_index.y * grid_resolution_;
-            
+
             geometry_msgs::msg::Point extended_point;
             extended_point.x = extended_x;
             extended_point.y = extended_y;
             extended_point.z = elevation;
-            
+
             grid_cells_[extended_index].points.push_back(extended_point);
             cells_added_this_radius++;
             total_extensions_added++;
-            
+
             // Safety check - if we're adding too many cells for this radius, stop this radius
             if (cells_added_this_radius > MAX_CELLS_PER_RADIUS) {
-              RCLCPP_WARN(logger_, "Per-radius extension limit reached (%zu cells), stopping radius %d", cells_added_this_radius, radius);
+              RCLCPP_WARN(
+                logger_, "Per-radius extension limit reached (%zu cells), stopping radius %d",
+                cells_added_this_radius, radius);
               radius_limit_reached = true;
             }
           }
         }
       }
     }
-    
+
     // After each radius, calculate statistics for the newly added cells
     // This makes them valid for the next radius iteration
     calculateGridStatistics();
-    
+
     // If we didn't add any cells this radius, we can stop early
     if (cells_added_this_radius == 0) {
       break;
@@ -181,47 +189,48 @@ void GridProcessor::fillEmptyGrids(int extension_radius)
 double GridProcessor::calculateAverageElevationFromNeighbors(const GridIndex & index) const
 {
   std::vector<std::pair<double, double>> neighbor_elevations_with_distance;
-  
+
   // Check 5x5 grid to find valid original cells
   for (int dx = -2; dx <= 2; ++dx) {
     for (int dy = -2; dy <= 2; ++dy) {
-      if (dx == 0 && dy == 0) continue; // Skip center point
-      
+      if (dx == 0 && dy == 0) continue;  // Skip center point
+
       GridIndex neighbor_index;
       neighbor_index.x = index.x + dx;
       neighbor_index.y = index.y + dy;
-      
+
       auto neighbor_it = grid_cells_.find(neighbor_index);
       if (neighbor_it != grid_cells_.end() && neighbor_it->second.is_valid) {
         // Calculate distance (Manhattan distance)
         double distance = std::abs(dx) + std::abs(dy);
-        neighbor_elevations_with_distance.emplace_back(neighbor_it->second.average_height, distance);
+        neighbor_elevations_with_distance.emplace_back(
+          neighbor_it->second.average_height, distance);
       }
     }
   }
-  
+
   // If we have neighbors, return weighted average based on inverse distance
   if (!neighbor_elevations_with_distance.empty()) {
     double weighted_sum = 0.0;
     double weight_sum = 0.0;
-    
+
     for (const auto & [elevation, distance] : neighbor_elevations_with_distance) {
       // Use inverse distance weighting (closer points have more influence)
-      double weight = 1.0 / (distance + 1.0); // +1 to avoid division by zero
+      double weight = 1.0 / (distance + 1.0);  // +1 to avoid division by zero
       weighted_sum += elevation * weight;
       weight_sum += weight;
     }
-    
+
     return weighted_sum / weight_sum;
   }
-  
+
   // If no neighbors found, return 0.0 as fallback
   return 0.0;
 }
 
 void GridProcessor::processLaneletBoundary(const lanelet::Lanelet & lanelet)
 {
-  double sampling_distance = grid_resolution_ * 0.5;  
+  double sampling_distance = grid_resolution_ * 0.5;
 
   // Sample points from left boundary
   auto left_points = samplePointsFromLineString(lanelet.leftBound(), sampling_distance);
@@ -268,7 +277,7 @@ std::vector<geometry_msgs::msg::Point> GridProcessor::samplePointsFromLineString
     }
 
     int num_samples = static_cast<int>(segment_length / sampling_distance) + 1;
-    
+
     double inv_num_samples = 1 / num_samples;
     for (int j = 0; j <= num_samples; ++j) {
       double ratio = static_cast<double>(j) * inv_num_samples;
@@ -307,7 +316,7 @@ void GridProcessor::calculateGridStatistics()
     cell.points.clear();
     cell.points.shrink_to_fit();
   }
-  
+
   // Clear interpolation cache since grid data has been updated
   // This ensures cached interpolated values are recalculated with new data
   elevation_cache_.clear();
@@ -331,32 +340,31 @@ double GridProcessor::getElevationAtPoint(double x, double y) const
 
   // No direct data and not in cache - need to interpolate from neighbors
   double interpolated_elevation = interpolateElevationFromNeighbors(index);
-  
+
   // Smart cache management: remove half when threshold exceeded
-  constexpr size_t MAX_CACHE_SIZE = 131072; 
-  
+  constexpr size_t MAX_CACHE_SIZE = 131072;
+
   if (elevation_cache_.size() >= MAX_CACHE_SIZE) {
     // Remove half of the cache entries when threshold is exceeded
     size_t target_size = MAX_CACHE_SIZE / 2;
     auto it = elevation_cache_.begin();
-    
+
     // Remove entries until we reach target size
     while (elevation_cache_.size() > target_size && it != elevation_cache_.end()) {
       it = elevation_cache_.erase(it);
     }
   }
-  
+
   // Always add the new entry after cache cleanup
   elevation_cache_[index] = interpolated_elevation;
-  
-  
+
   return interpolated_elevation;
 }
 
 double GridProcessor::interpolateElevationFromNeighbors(const GridIndex & index) const
 {
   std::vector<std::pair<double, double>> neighbor_elevations_with_weight;
-  
+
   // Check immediate neighbors first (3x3 grid) with higher priority
   for (int dx = -1; dx <= 1; ++dx) {
     for (int dy = -1; dy <= 1; ++dy) {
@@ -368,18 +376,19 @@ double GridProcessor::interpolateElevationFromNeighbors(const GridIndex & index)
 
       auto neighbor_it = grid_cells_.find(neighbor_index);
       if (neighbor_it != grid_cells_.end() && neighbor_it->second.is_valid) {
-        double distance = std::sqrt(dx * dx + dy * dy); // Euclidean distance for better interpolation
-        double weight = 1.0 / (distance + 0.1); // Higher weight for closer neighbors
+        double distance =
+          std::sqrt(dx * dx + dy * dy);          // Euclidean distance for better interpolation
+        double weight = 1.0 / (distance + 0.1);  // Higher weight for closer neighbors
         neighbor_elevations_with_weight.emplace_back(neighbor_it->second.average_height, weight);
       }
     }
   }
-  
+
   // If no immediate neighbors, check a larger area (5x5 grid)
   if (neighbor_elevations_with_weight.empty()) {
     for (int dx = -2; dx <= 2; ++dx) {
       for (int dy = -2; dy <= 2; ++dy) {
-        if (std::abs(dx) <= 1 && std::abs(dy) <= 1) continue; // Skip already checked cells
+        if (std::abs(dx) <= 1 && std::abs(dy) <= 1) continue;  // Skip already checked cells
 
         GridIndex neighbor_index;
         neighbor_index.x = index.x + dx;
@@ -394,20 +403,20 @@ double GridProcessor::interpolateElevationFromNeighbors(const GridIndex & index)
       }
     }
   }
-  
+
   // Calculate weighted average if neighbors found
   if (!neighbor_elevations_with_weight.empty()) {
     double weighted_sum = 0.0;
     double weight_sum = 0.0;
-    
+
     for (const auto & [elevation, weight] : neighbor_elevations_with_weight) {
       weighted_sum += elevation * weight;
       weight_sum += weight;
     }
-    
+
     return weighted_sum / weight_sum;
   }
-  
+
   // No neighbors found - return default elevation
   return 0.0;
 }
@@ -422,7 +431,7 @@ bool GridProcessor::isPointValid(double x, double y, double z, double threshold)
 void GridProcessor::reset()
 {
   grid_cells_.clear();
-  elevation_cache_.clear(); // Clear interpolation cache when grid is reset
+  elevation_cache_.clear();  // Clear interpolation cache when grid is reset
 }
 
 std::vector<std::pair<GridIndex, GridCell>> GridProcessor::getGridCells() const
@@ -458,21 +467,24 @@ std::pair<double, double> GridProcessor::getGridBounds() const
   return {min_elevation, max_elevation};
 }
 
-void GridProcessor::processLaneletsWithCache(const lanelet::LaneletMapPtr & lanelet_map, double sampling_distance, int extension_size, const std::string & cache_directory)
+void GridProcessor::processLaneletsWithCache(
+  const lanelet::LaneletMapPtr & lanelet_map, double sampling_distance, int extension_size,
+  const std::string & cache_directory)
 {
   if (!lanelet_map) {
     return;
   }
 
   // Generate cache filename based on map content and parameters
-  std::string cache_filename = generateCacheFilename(lanelet_map, sampling_distance, extension_size, cache_directory);
-  
+  std::string cache_filename =
+    generateCacheFilename(lanelet_map, sampling_distance, extension_size, cache_directory);
+
   // Try to load from cache first
   if (loadGridFromCache(cache_filename)) {
     std::cout << "Loaded grid from cache: " << cache_filename << std::endl;
     return;
   }
-  
+
   // If cache miss, generate the grid
   std::cout << "Cache miss, generating new grid..." << std::endl;
   reset();
@@ -487,69 +499,71 @@ void GridProcessor::processLaneletsWithCache(const lanelet::LaneletMapPtr & lane
 
   // Then, fill empty grids around original points with specified extension
   fillEmptyGrids(extension_size);
-  
+
   // Save to cache for future use
   saveGridToCache(cache_filename);
 }
 
-std::string GridProcessor::generateCacheFilename(const lanelet::LaneletMapPtr & lanelet_map, double sampling_distance, int extension_size, const std::string & cache_directory) const
+std::string GridProcessor::generateCacheFilename(
+  const lanelet::LaneletMapPtr & lanelet_map, double sampling_distance, int extension_size,
+  const std::string & cache_directory) const
 {
   // Create a comprehensive signature based on map content and parameters
   std::stringstream signature_stream;
-  
+
   // Add processing parameters first
-  signature_stream << "res_" << std::fixed << std::setprecision(3) << grid_resolution_
-                   << "_sample_" << std::setprecision(3) << sampling_distance 
-                   << "_ext_" << extension_size << "_";
-  
+  signature_stream << "res_" << std::fixed << std::setprecision(3) << grid_resolution_ << "_sample_"
+                   << std::setprecision(3) << sampling_distance << "_ext_" << extension_size << "_";
+
   // Create sorted list of lanelets for consistent signature
   std::vector<lanelet::Lanelet> sorted_lanelets;
   for (const auto & lanelet : lanelet_map->laneletLayer) {
     sorted_lanelets.push_back(lanelet);
   }
-  std::sort(sorted_lanelets.begin(), sorted_lanelets.end(), 
-            [](const lanelet::Lanelet& a, const lanelet::Lanelet& b) { 
-              return a.id() < b.id(); 
-            });
-  
+  std::sort(
+    sorted_lanelets.begin(), sorted_lanelets.end(),
+    [](const lanelet::Lanelet & a, const lanelet::Lanelet & b) { return a.id() < b.id(); });
+
   // Add detailed lanelet information for robust change detection
   for (const auto & lanelet : sorted_lanelets) {
     signature_stream << "L" << lanelet.id() << "_";
-    
+
     // Add left boundary points
     auto leftBound = lanelet.leftBound();
-    for (size_t i = 0; i < leftBound.size(); i += std::max(1, static_cast<int>(leftBound.size() / 10))) {
-      const auto& point = leftBound[i];
-      signature_stream << std::fixed << std::setprecision(2) 
-                      << point.x() << "," << point.y() << "," << point.z() << "_";
+    for (size_t i = 0; i < leftBound.size();
+         i += std::max(1, static_cast<int>(leftBound.size() / 10))) {
+      const auto & point = leftBound[i];
+      signature_stream << std::fixed << std::setprecision(2) << point.x() << "," << point.y() << ","
+                       << point.z() << "_";
     }
-    
+
     // Add right boundary points
     auto rightBound = lanelet.rightBound();
-    for (size_t i = 0; i < rightBound.size(); i += std::max(1, static_cast<int>(rightBound.size() / 10))) {
-      const auto& point = rightBound[i];
-      signature_stream << std::fixed << std::setprecision(2) 
-                      << point.x() << "," << point.y() << "," << point.z() << "_";
+    for (size_t i = 0; i < rightBound.size();
+         i += std::max(1, static_cast<int>(rightBound.size() / 10))) {
+      const auto & point = rightBound[i];
+      signature_stream << std::fixed << std::setprecision(2) << point.x() << "," << point.y() << ","
+                       << point.z() << "_";
     }
   }
-  
+
   // Generate hash from the complete signature
   std::hash<std::string> hasher;
   size_t content_hash = hasher(signature_stream.str());
-  
+
   // Use provided cache directory or default to package data directory
   std::string cache_dir = cache_directory;
   if (cache_dir.empty()) {
     cache_dir = "/tmp/autoware_lanelet_cache/";
   }
-  
+
   // Create cache directory if it doesn't exist
   std::string mkdir_command = "mkdir -p " + cache_dir;
   int result = system(mkdir_command.c_str());
   if (result != 0) {
     // Silent failure, cache will be regenerated
   }
-  
+
   return cache_dir + "/lanelet_grid_" + std::to_string(content_hash) + ".cache";
 }
 
@@ -559,39 +573,39 @@ bool GridProcessor::loadGridFromCache(const std::string & cache_filename)
   if (!file.is_open()) {
     return false;
   }
-  
+
   try {
     grid_cells_.clear();
-    elevation_cache_.clear(); // Clear interpolation cache when loading new grid data
-    
+    elevation_cache_.clear();  // Clear interpolation cache when loading new grid data
+
     // Read number of grid cells
     size_t num_cells;
-    file.read(reinterpret_cast<char*>(&num_cells), sizeof(num_cells));
-    
+    file.read(reinterpret_cast<char *>(&num_cells), sizeof(num_cells));
+
     if (file.fail()) {
       file.close();
       return false;
     }
-    
+
     // Read each grid cell
     for (size_t i = 0; i < num_cells; ++i) {
       GridIndex index;
-      file.read(reinterpret_cast<char*>(&index.x), sizeof(index.x));
-      file.read(reinterpret_cast<char*>(&index.y), sizeof(index.y));
-      
+      file.read(reinterpret_cast<char *>(&index.x), sizeof(index.x));
+      file.read(reinterpret_cast<char *>(&index.y), sizeof(index.y));
+
       GridCell cell;
-      file.read(reinterpret_cast<char*>(&cell.average_height), sizeof(cell.average_height));
-      file.read(reinterpret_cast<char*>(&cell.is_valid), sizeof(cell.is_valid));
-      
+      file.read(reinterpret_cast<char *>(&cell.average_height), sizeof(cell.average_height));
+      file.read(reinterpret_cast<char *>(&cell.is_valid), sizeof(cell.is_valid));
+
       if (file.fail()) {
         file.close();
         return false;
       }
-      
+
       // We don't need to store the individual points, just the statistics
       grid_cells_[index] = cell;
     }
-    
+
     file.close();
     return true;
   } catch (const std::exception & e) {
@@ -606,30 +620,30 @@ void GridProcessor::saveGridToCache(const std::string & cache_filename) const
   if (!file.is_open()) {
     return;
   }
-  
+
   try {
     // Write number of grid cells
     size_t num_cells = grid_cells_.size();
-    file.write(reinterpret_cast<const char*>(&num_cells), sizeof(num_cells));
-    
+    file.write(reinterpret_cast<const char *>(&num_cells), sizeof(num_cells));
+
     if (file.fail()) {
       file.close();
       return;
     }
-    
+
     // Write each grid cell
     for (const auto & [index, cell] : grid_cells_) {
-      file.write(reinterpret_cast<const char*>(&index.x), sizeof(index.x));
-      file.write(reinterpret_cast<const char*>(&index.y), sizeof(index.y));
-      file.write(reinterpret_cast<const char*>(&cell.average_height), sizeof(cell.average_height));
-      file.write(reinterpret_cast<const char*>(&cell.is_valid), sizeof(cell.is_valid));
-      
+      file.write(reinterpret_cast<const char *>(&index.x), sizeof(index.x));
+      file.write(reinterpret_cast<const char *>(&index.y), sizeof(index.y));
+      file.write(reinterpret_cast<const char *>(&cell.average_height), sizeof(cell.average_height));
+      file.write(reinterpret_cast<const char *>(&cell.is_valid), sizeof(cell.is_valid));
+
       if (file.fail()) {
         file.close();
         return;
       }
     }
-    
+
     file.close();
   } catch (const std::exception & e) {
     file.close();

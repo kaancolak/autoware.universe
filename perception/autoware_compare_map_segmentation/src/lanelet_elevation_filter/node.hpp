@@ -66,7 +66,7 @@ private:
 
   // Debug functions
   void printParameters();
-  
+
   // Utility functions
   std::string resolvePackageSharePath(const std::string & path);
 };

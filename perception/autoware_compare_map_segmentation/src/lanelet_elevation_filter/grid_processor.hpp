@@ -15,17 +15,18 @@
 #ifndef LANELET_ELEVATION_FILTER__GRID_PROCESSOR_HPP_
 #define LANELET_ELEVATION_FILTER__GRID_PROCESSOR_HPP_
 
-#include <geometry_msgs/msg/point.hpp>
 #include <rclcpp/rclcpp.hpp>
+
+#include <geometry_msgs/msg/point.hpp>
 
 #include <lanelet2_core/LaneletMap.h>
 #include <lanelet2_core/geometry/Lanelet.h>
 #include <lanelet2_core/geometry/Point.h>
 
+#include <fstream>
+#include <string>
 #include <unordered_map>
 #include <vector>
-#include <string>
-#include <fstream>
 
 namespace autoware::compare_map_segmentation
 {
@@ -60,7 +61,9 @@ public:
 
   void processLanelets(const lanelet::LaneletMapPtr & lanelet_map, int extension_count = 20);
 
-  void processLaneletsWithCache(const lanelet::LaneletMapPtr & lanelet_map, double sampling_distance, int extension_size = 20, const std::string & cache_directory = "");
+  void processLaneletsWithCache(
+    const lanelet::LaneletMapPtr & lanelet_map, double sampling_distance, int extension_size = 20,
+    const std::string & cache_directory = "");
 
   double getElevationAtPoint(double x, double y) const;
 
@@ -79,7 +82,7 @@ private:
   std::unordered_map<GridIndex, GridCell, GridIndexHash> grid_cells_;
 
   mutable std::unordered_map<GridIndex, double, GridIndexHash> elevation_cache_;
-  
+
   // Logger for this class
   rclcpp::Logger logger_;
 
@@ -101,7 +104,9 @@ private:
     const lanelet::ConstLineString3d & linestring, double sampling_distance) const;
 
   // Cache-related functions
-  std::string generateCacheFilename(const lanelet::LaneletMapPtr & lanelet_map, double sampling_distance, int extension_size, const std::string & cache_directory) const;
+  std::string generateCacheFilename(
+    const lanelet::LaneletMapPtr & lanelet_map, double sampling_distance, int extension_size,
+    const std::string & cache_directory) const;
 
   bool loadGridFromCache(const std::string & cache_filename);
 

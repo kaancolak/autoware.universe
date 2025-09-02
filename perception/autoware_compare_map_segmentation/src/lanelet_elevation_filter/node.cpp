@@ -14,9 +14,9 @@
 
 #include "node.hpp"
 
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <autoware/pointcloud_preprocessor/transform_info.hpp>
 #include <autoware_utils/ros/parameter.hpp>
-#include <ament_index_cpp/get_package_share_directory.hpp>
 
 #include <autoware_internal_debug_msgs/msg/float64_stamped.hpp>
 
@@ -24,8 +24,8 @@
 #include <pcl/point_types.h>
 
 #include <chrono>
-#include <memory>
 #include <filesystem>
+#include <memory>
 
 namespace autoware::compare_map_segmentation
 {
@@ -39,7 +39,6 @@ LaneletElevationFilterComponent::LaneletElevationFilterComponent(
   filter_ = std::make_unique<LaneletElevationFilter>(params_);
 
   if (params_.enable_debug) {
-
     stop_watch_ptr_ = std::make_unique<autoware_utils::StopWatch<std::chrono::milliseconds>>();
     debug_publisher_ = std::make_unique<autoware_utils::DebugPublisher>(this, get_name());
 
@@ -66,7 +65,10 @@ void LaneletElevationFilterComponent::printParameters()
   RCLCPP_INFO(this->get_logger(), "Sampling distance: %.2f m", params_.sampling_distance);
   RCLCPP_INFO(this->get_logger(), "Extension count: %d cells", params_.extension_count);
   RCLCPP_INFO(this->get_logger(), "Target frame: %s", params_.target_frame.c_str());
-  RCLCPP_INFO(this->get_logger(), "Cache directory: %s", params_.cache_directory.empty() ? "/tmp/autoware_lanelet_cache/" : params_.cache_directory.c_str());
+  RCLCPP_INFO(
+    this->get_logger(), "Cache directory: %s",
+    params_.cache_directory.empty() ? "/tmp/autoware_lanelet_cache/"
+                                    : params_.cache_directory.c_str());
   RCLCPP_INFO(this->get_logger(), "Debug mode: %s", params_.enable_debug ? "enabled" : "disabled");
 }
 
@@ -77,21 +79,25 @@ void LaneletElevationFilterComponent::loadParameters()
   params_.height_threshold = this->declare_parameter<double>("height_threshold", 2.0);
   params_.sampling_distance = this->declare_parameter<double>("sampling_distance", 0.5);
   params_.target_frame = this->declare_parameter<std::string>("target_frame", "map");
-  params_.cache_directory = this->declare_parameter<std::string>("cache_directory", "$(find-pkg-share autoware_compare_map_segmentation)/data/lanelet_grid_cache");
+  params_.cache_directory = this->declare_parameter<std::string>(
+    "cache_directory",
+    "$(find-pkg-share autoware_compare_map_segmentation)/data/lanelet_grid_cache");
   params_.enable_debug = this->declare_parameter<bool>("enable_debug", false);
   params_.extension_count = this->declare_parameter<int>("extension_count", 20);
-  
-  // Resolve ROS package path 
+
+  // Resolve ROS package path
   if (params_.cache_directory.find("$(find-pkg-share") != std::string::npos) {
     std::string resolved_cache_dir = resolvePackageSharePath(params_.cache_directory);
     if (!resolved_cache_dir.empty()) {
       params_.cache_directory = resolved_cache_dir;
     } else {
-      RCLCPP_WARN(this->get_logger(), "Failed to resolve cache directory: %s, using fallback", params_.cache_directory.c_str());
+      RCLCPP_WARN(
+        this->get_logger(), "Failed to resolve cache directory: %s, using fallback",
+        params_.cache_directory.c_str());
       params_.cache_directory = "/tmp/autoware_lanelet_cache";
     }
   }
-  
+
   // Ensure cache directory is set to a reliable path
   if (params_.cache_directory.empty()) {
     params_.cache_directory = "/tmp/autoware_lanelet_cache";
@@ -142,7 +148,7 @@ void LaneletElevationFilterComponent::filter(
 
   TransformInfo transform_info;
   transform_info.need_transform = false;
-  
+
   if (!params_.target_frame.empty() && input->header.frame_id != params_.target_frame) {
     if (!managed_tf_buffer_->get_transform(
           tf_input_frame_, input->header.frame_id, transform_info.eigen_transform)) {
@@ -193,18 +199,19 @@ void LaneletElevationFilterComponent::filter(
     float transformed_x = point.x;
     float transformed_y = point.y;
     float transformed_z = point.z;
-    
+
     if (transform_info.need_transform) {
       Eigen::Vector4f point_eigen(point.x, point.y, point.z, 1.0f);
       Eigen::Vector4f transformed_point = transform_info.eigen_transform * point_eigen;
-      
+
       transformed_x = transformed_point(0);
       transformed_y = transformed_point(1);
       transformed_z = transformed_point(2);
     }
 
     try {
-      if (filter_->getGridProcessor()->isPointValid(transformed_x, transformed_y, transformed_z, height_threshold)) {
+      if (filter_->getGridProcessor()->isPointValid(
+            transformed_x, transformed_y, transformed_z, height_threshold)) {
         std::memcpy(&output.data[output_size], &input->data[global_offset], point_step);
         output_size += point_step;
       }
@@ -214,7 +221,7 @@ void LaneletElevationFilterComponent::filter(
     }
   }
 
-  // Set output cloud 
+  // Set output cloud
   output.header = input->header;
   output.fields = input->fields;
   output.data.resize(output_size);
@@ -252,9 +259,10 @@ void LaneletElevationFilterComponent::onMap(
 
     // Set the lanelet map in the filter
     filter_->setLaneletMap(msg);
-    
+
     const auto end_time = std::chrono::high_resolution_clock::now();
-    const auto processing_time = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+    const auto processing_time =
+      std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
     const double processing_time_ms = processing_time.count() / 1000.0;
 
     RCLCPP_INFO(
@@ -277,32 +285,33 @@ std::string LaneletElevationFilterComponent::resolvePackageSharePath(const std::
   // Look for $(find-pkg-share package_name) pattern
   size_t start = path.find("$(find-pkg-share ");
   if (start == std::string::npos) {
-    return path; // No substitution needed
+    return path;  // No substitution needed
   }
-  
+
   size_t package_start = start + strlen("$(find-pkg-share ");
   size_t package_end = path.find(")", package_start);
   if (package_end == std::string::npos) {
     RCLCPP_ERROR(this->get_logger(), "Invalid $(find-pkg-share) syntax in path: %s", path.c_str());
     return "";
   }
-  
+
   std::string package_name = path.substr(package_start, package_end - package_start);
-  
+
   try {
     // Get the package share directory
     std::string package_share_dir = ament_index_cpp::get_package_share_directory(package_name);
-    
+
     // Replace the substitution with the actual path
     std::string resolved_path = path;
     resolved_path.replace(start, package_end - start + 1, package_share_dir);
-    
+
     // Create the directory if it doesn't exist
     std::filesystem::create_directories(resolved_path);
-    
+
     return resolved_path;
   } catch (const std::exception & e) {
-    RCLCPP_ERROR(this->get_logger(), "Failed to resolve package '%s': %s", package_name.c_str(), e.what());
+    RCLCPP_ERROR(
+      this->get_logger(), "Failed to resolve package '%s': %s", package_name.c_str(), e.what());
     return "";
   }
 }
