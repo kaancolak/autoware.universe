@@ -421,19 +421,20 @@ double GridProcessor::interpolateElevationFromNeighbors(const GridIndex & index)
   return 0.0;
 }
 
-bool GridProcessor::isPointValid(double x, double y, double z, double threshold, bool require_map_coverage) const
+bool GridProcessor::isPointValid(
+  double x, double y, double z, double threshold, bool require_map_coverage) const
 {
   GridIndex index = getGridIndex(x, y);
-  
+
   // Check if we have a direct grid cell with valid data from the map
   auto it = grid_cells_.find(index);
   bool has_map_data = (it != grid_cells_.end() && it->second.is_valid);
-  
+
   if (require_map_coverage && !has_map_data) {
     // If require_map_coverage is true and no direct map data exists, reject the point
     return false;
   }
-  
+
   // Get elevation (either from direct map data or interpolated)
   double expected_elevation;
   if (has_map_data) {
@@ -441,7 +442,7 @@ bool GridProcessor::isPointValid(double x, double y, double z, double threshold,
   } else {
     expected_elevation = getElevationAtPoint(x, y);
   }
-  
+
   double height_difference = std::abs(z - expected_elevation);
   return height_difference <= threshold;
 }
