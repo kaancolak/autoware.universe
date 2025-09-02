@@ -268,9 +268,10 @@ std::vector<geometry_msgs::msg::Point> GridProcessor::samplePointsFromLineString
     }
 
     int num_samples = static_cast<int>(segment_length / sampling_distance) + 1;
-
+    
+    double inv_num_samples = 1 / num_samples;
     for (int j = 0; j <= num_samples; ++j) {
-      double ratio = static_cast<double>(j) / num_samples;
+      double ratio = static_cast<double>(j) * inv_num_samples;
 
       geometry_msgs::msg::Point point;
       point.x = start_point.x() + ratio * dx;
