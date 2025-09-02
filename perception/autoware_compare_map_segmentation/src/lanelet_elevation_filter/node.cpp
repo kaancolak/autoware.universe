@@ -65,10 +65,8 @@ void LaneletElevationFilterComponent::printParameters()
   RCLCPP_INFO(this->get_logger(), "Sampling distance: %.2f m", params_.sampling_distance);
   RCLCPP_INFO(this->get_logger(), "Extension count: %d cells", params_.extension_count);
   RCLCPP_INFO(this->get_logger(), "Target frame: %s", params_.target_frame.c_str());
-  RCLCPP_INFO(
-    this->get_logger(), "Cache directory: %s",
-    params_.cache_directory.empty() ? "/tmp/autoware_lanelet_cache/"
-                                    : params_.cache_directory.c_str());
+  RCLCPP_INFO(this->get_logger(), "Cache directory: %s", params_.cache_directory.empty() ? "/tmp/autoware_lanelet_cache/" : params_.cache_directory.c_str());
+  RCLCPP_INFO(this->get_logger(), "Require map coverage: %s", params_.require_map_coverage ? "enabled" : "disabled");
   RCLCPP_INFO(this->get_logger(), "Debug mode: %s", params_.enable_debug ? "enabled" : "disabled");
 }
 
@@ -84,8 +82,25 @@ void LaneletElevationFilterComponent::loadParameters()
     "$(find-pkg-share autoware_compare_map_segmentation)/data/lanelet_grid_cache");
   params_.enable_debug = this->declare_parameter<bool>("enable_debug", false);
   params_.extension_count = this->declare_parameter<int>("extension_count", 20);
-
-  // Resolve ROS package path
+  params_.require_map_coverage = this->declare_parameter<bool>("require_map_coverage", false);
+  
+  // Validate parameters
+  if (params_.grid_resolution <= 0.0) {
+    RCLCPP_ERROR(this->get_logger(), "Invalid grid_resolution: %f. Must be positive.", params_.grid_resolution);
+    throw std::invalid_argument("grid_resolution must be positive");
+  }
+  
+  if (params_.height_threshold < 0.0) {
+    RCLCPP_ERROR(this->get_logger(), "Invalid height_threshold: %f. Must be non-negative.", params_.height_threshold);
+    throw std::invalid_argument("height_threshold must be non-negative");
+  }
+  
+  if (params_.extension_count < 0) {
+    RCLCPP_WARN(this->get_logger(), "Extension count is negative (%d), setting to 0", params_.extension_count);
+    params_.extension_count = 0;
+  }
+  
+  // Resolve ROS package path 
   if (params_.cache_directory.find("$(find-pkg-share") != std::string::npos) {
     std::string resolved_cache_dir = resolvePackageSharePath(params_.cache_directory);
     if (!resolved_cache_dir.empty()) {
@@ -151,7 +166,7 @@ void LaneletElevationFilterComponent::filter(
 
   if (!params_.target_frame.empty() && input->header.frame_id != params_.target_frame) {
     if (!managed_tf_buffer_->get_transform(
-          tf_input_frame_, input->header.frame_id, transform_info.eigen_transform)) {
+          params_.target_frame, input->header.frame_id, transform_info.eigen_transform)) {
       RCLCPP_ERROR(this->get_logger(), "Failed to get transformation matrix");
       output = *input;
       return;
@@ -210,8 +225,11 @@ void LaneletElevationFilterComponent::filter(
     }
 
     try {
-      if (filter_->getGridProcessor()->isPointValid(
-            transformed_x, transformed_y, transformed_z, height_threshold)) {
+      // Use the optimized version that handles both map data checking and height validation in one call
+      bool should_keep_point = filter_->getGridProcessor()->isPointValid(
+        transformed_x, transformed_y, transformed_z, height_threshold, params_.require_map_coverage);
+      
+      if (should_keep_point) {
         std::memcpy(&output.data[output_size], &input->data[global_offset], point_step);
         output_size += point_step;
       }

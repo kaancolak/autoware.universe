@@ -67,7 +67,7 @@ public:
 
   double getElevationAtPoint(double x, double y) const;
 
-  bool isPointValid(double x, double y, double z, double threshold) const;
+  bool isPointValid(double x, double y, double z, double threshold, bool require_map_coverage) const;
 
   void reset();
 

@@ -421,9 +421,27 @@ double GridProcessor::interpolateElevationFromNeighbors(const GridIndex & index)
   return 0.0;
 }
 
-bool GridProcessor::isPointValid(double x, double y, double z, double threshold) const
+bool GridProcessor::isPointValid(double x, double y, double z, double threshold, bool require_map_coverage) const
 {
-  double expected_elevation = getElevationAtPoint(x, y);
+  GridIndex index = getGridIndex(x, y);
+  
+  // Check if we have a direct grid cell with valid data from the map
+  auto it = grid_cells_.find(index);
+  bool has_map_data = (it != grid_cells_.end() && it->second.is_valid);
+  
+  if (require_map_coverage && !has_map_data) {
+    // If require_map_coverage is true and no direct map data exists, reject the point
+    return false;
+  }
+  
+  // Get elevation (either from direct map data or interpolated)
+  double expected_elevation;
+  if (has_map_data) {
+    expected_elevation = it->second.average_height;
+  } else {
+    expected_elevation = getElevationAtPoint(x, y);
+  }
+  
   double height_difference = std::abs(z - expected_elevation);
   return height_difference <= threshold;
 }
@@ -481,12 +499,12 @@ void GridProcessor::processLaneletsWithCache(
 
   // Try to load from cache first
   if (loadGridFromCache(cache_filename)) {
-    std::cout << "Loaded grid from cache: " << cache_filename << std::endl;
+    RCLCPP_DEBUG(logger_, "Loaded grid from cache: %s", cache_filename.c_str());
     return;
   }
 
   // If cache miss, generate the grid
-  std::cout << "Cache miss, generating new grid..." << std::endl;
+  RCLCPP_DEBUG(logger_, "Cache miss, generating new grid...");
   reset();
 
   // First, process all lanelets to generate map from original points

@@ -83,13 +83,16 @@ If incoming point cloud frame differs from target_frame, points will be transfor
 
 #### Parameters
 
-| Name                   | Type   | Description                                                                   | Default value |
-| :--------------------- | :----- | :---------------------------------------------------------------------------- | :------------ |
-| `grid_resolution`      | double | Grid cell size in meters for elevation processing                             | 1.0           |
-| `height_threshold`     | double | Maximum height difference from lanelet elevation (meters)                     | 2.0           |
-| `sampling_distance`    | double | Distance between sampled points along lanelet boundaries (meters)             | 0.5           |
-| `target_frame`         | string | Target coordinate frame for processing, should be same with lanelet map frame | map           |
-| `enable_debug_markers` | bool   | Enable elevation grid visualization markers for RViz                          | false         |
+| Name                   | Type   | Description                                                       | Default value |
+| :--------------------- | :----- | :---------------------------------------------------------------- | :------------ |
+| `grid_resolution`      | double | Grid cell size in meters for elevation processing                 | 1.0           |
+| `height_threshold`     | double | Maximum height difference from lanelet elevation (meters)         | 2.0           |
+| `sampling_distance`    | double | Distance between sampled points along lanelet boundaries (meters) | 0.5           |
+| `extension_count`      | int    | Number of cells to extend around original lanelet points          | 5             |
+| `target_frame`         | string | Target coordinate frame for processing                            | map           |
+| `cache_directory`      | string | Directory for cached grid files                                   | $(find-pkg-share autoware_compare_map_segmentation)/data/lanelet_grid_cache |
+| `require_map_coverage` | bool   | If true, only keep points with direct map coverage; reject points requiring interpolation | true |
+| `enable_debug`         | bool   | Enable debug mode (includes elevation markers and processing time publisher) | false |
 
 ### Other Filters
 

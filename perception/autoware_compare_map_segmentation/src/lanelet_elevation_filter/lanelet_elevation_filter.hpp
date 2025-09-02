@@ -37,6 +37,7 @@ struct LaneletElevationFilterParams
   std::string cache_directory;
   bool enable_debug;
   int extension_count;
+  bool require_map_coverage;
 };
 
 class LaneletElevationFilter
