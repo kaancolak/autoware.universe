@@ -16,6 +16,7 @@
 
 #include <list>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -111,8 +112,12 @@ private:
   std::list<std::shared_ptr<CloudCollector<MsgTraits>>> cloud_collectors_;
   std::unique_ptr<CollectorMatchingStrategy<MsgTraits>> collector_matching_strategy_;
 
-  bool init_collector_list_{false};
   static constexpr const int num_of_collectors{3};
+  
+  // Thread-safe initialization
+  std::once_flag init_collectors_flag_;
+  // Mutex to protect cloud_collectors_ list access
+  mutable std::mutex collectors_mutex_;
 
   // default postfix name for synchronized pointcloud
   static constexpr const char * default_sync_topic_postfix = "_synchronized";

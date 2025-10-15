@@ -17,7 +17,9 @@
 #include "collector_info.hpp"
 #include "combine_cloud_handler.hpp"
 
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 
@@ -56,7 +58,9 @@ public:
 
   void set_info(std::shared_ptr<CollectorInfoBase> collector_info);
   [[nodiscard]] std::shared_ptr<CollectorInfoBase> get_info() const;
-  void show_debug_message();
+  void show_debug_message(
+    const std::unordered_map<std::string, typename MsgTraits::PointCloudMessage::ConstSharedPtr> & topic_to_cloud_map,
+    const std::shared_ptr<CollectorInfoBase> & collector_info);
   void reset();
 
 private:
@@ -68,8 +72,9 @@ private:
     topic_to_cloud_map_;
   uint64_t num_of_clouds_;
   double timeout_sec_;
+  mutable std::mutex collector_mutex_;
   std::shared_ptr<CollectorInfoBase> collector_info_;
-  CollectorStatus status_;
+  std::atomic<CollectorStatus> status_;
   bool debug_mode_;
 };
 

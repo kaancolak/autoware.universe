@@ -44,7 +44,7 @@ CloudCollector<MsgTraits>::CloudCollector(
 
   timer_ =
     rclcpp::create_timer(ros2_parent_node_, ros2_parent_node_->get_clock(), period_ns, [this]() {
-      if (status_ == CollectorStatus::Finished) return;
+      if (status_.load() == CollectorStatus::Finished) return;
       concatenate_callback();
     });
 
@@ -54,12 +54,14 @@ CloudCollector<MsgTraits>::CloudCollector(
 template <typename MsgTraits>
 void CloudCollector<MsgTraits>::set_info(std::shared_ptr<CollectorInfoBase> collector_info)
 {
+  std::lock_guard<std::mutex> lock(collector_mutex_);
   collector_info_ = std::move(collector_info);
 }
 
 template <typename MsgTraits>
 std::shared_ptr<CollectorInfoBase> CloudCollector<MsgTraits>::get_info() const
 {
+  std::lock_guard<std::mutex> lock(collector_mutex_);
   return collector_info_;
 }
 
@@ -73,24 +75,41 @@ template <typename MsgTraits>
 void CloudCollector<MsgTraits>::process_pointcloud(
   const std::string & topic_name, typename MsgTraits::PointCloudMessage::ConstSharedPtr cloud)
 {
-  if (status_ == CollectorStatus::Idle) {
-    // Add first pointcloud to the collector, restart the timer
-    status_ = CollectorStatus::Processing;
-    timer_->reset();
-  } else if (status_ == CollectorStatus::Processing) {
-    // Check if the map already contains an entry for the same topic. This shouldn't happen if the
-    // parameter 'lidar_timestamp_noise_window' is set correctly.
-    if (topic_to_cloud_map_.find(topic_name) != topic_to_cloud_map_.end()) {
-      RCLCPP_WARN_STREAM_THROTTLE(
-        ros2_parent_node_->get_logger(), *ros2_parent_node_->get_clock(),
-        std::chrono::milliseconds(10000).count(),
-        "Topic '" << topic_name
-                  << "' already exists in the collector. Check the timestamp of the pointcloud.");
+  bool should_concatenate = false;
+  bool should_warn_duplicate = false;
+  
+  {
+    std::lock_guard<std::mutex> lock(collector_mutex_);
+    
+    if (status_.load() == CollectorStatus::Idle) {
+      // Add first pointcloud to the collector, restart the timer
+      status_.store(CollectorStatus::Processing);
+      timer_->reset();
+    } else if (status_.load() == CollectorStatus::Processing) {
+      // Check if the map already contains an entry for the same topic. This shouldn't happen if the
+      // parameter 'lidar_timestamp_noise_window' is set correctly.
+      if (topic_to_cloud_map_.find(topic_name) != topic_to_cloud_map_.end()) {
+        should_warn_duplicate = true;
+      }
+    } 
+
+    topic_to_cloud_map_[topic_name] = cloud;
+    if (topic_to_cloud_map_.size() == num_of_clouds_) {
+      should_concatenate = true;
     }
   }
-
-  topic_to_cloud_map_[topic_name] = cloud;
-  if (topic_to_cloud_map_.size() == num_of_clouds_) {
+  
+  // Log warning outside the lock to avoid deadlock
+  if (should_warn_duplicate) {
+    RCLCPP_WARN_STREAM_THROTTLE(
+      ros2_parent_node_->get_logger(), *ros2_parent_node_->get_clock(),
+      std::chrono::milliseconds(10000).count(),
+      "Topic '" << topic_name
+                << "' already exists in the collector. Check the timestamp of the pointcloud.");
+  }
+  
+  // Call concatenate_callback outside the lock to avoid deadlock
+  if (should_concatenate) {
     concatenate_callback();
   }
 }
@@ -98,29 +117,50 @@ void CloudCollector<MsgTraits>::process_pointcloud(
 template <typename MsgTraits>
 CollectorStatus CloudCollector<MsgTraits>::get_status() const
 {
-  return status_;
+  return status_.load();
 }
 
 template <typename MsgTraits>
 void CloudCollector<MsgTraits>::concatenate_callback()
 {
-  if (debug_mode_) {
-    show_debug_message();
+  std::unordered_map<std::string, typename MsgTraits::PointCloudMessage::ConstSharedPtr> 
+    topic_to_cloud_map_copy;
+  std::shared_ptr<CollectorInfoBase> collector_info_copy;
+  bool should_debug = false;
+  
+  {
+    std::lock_guard<std::mutex> lock(collector_mutex_);
+    
+    // Early return if already finished to prevent double processing
+    if (status_.load() == CollectorStatus::Finished) {
+      return;
+    }
+    
+    // All pointclouds are received or the timer has timed out, cancel the timer and concatenate the
+    // pointclouds in the collector.
+    timer_->cancel();
+    
+    should_debug = debug_mode_;
+    
+    // Make copies to avoid holding the lock during processing
+    topic_to_cloud_map_copy = topic_to_cloud_map_;
+    collector_info_copy = collector_info_;
+    
+    status_.store(CollectorStatus::Finished);
   }
 
-  // All pointclouds are received or the timer has timed out, cancel the timer and concatenate the
-  // pointclouds in the collector.
-  timer_->cancel();
+  // Debug logging outside the lock to avoid deadlock
+  if (should_debug) {
+    show_debug_message(topic_to_cloud_map_copy, collector_info_copy);
+  }
 
-  auto concatenated_cloud_result = concatenate_pointclouds(topic_to_cloud_map_);
+  auto concatenated_cloud_result = concatenate_pointclouds(topic_to_cloud_map_copy);
 
-  ros2_parent_node_->publish_clouds(std::move(concatenated_cloud_result), collector_info_);
+  ros2_parent_node_->publish_clouds(std::move(concatenated_cloud_result), collector_info_copy);
 
   // Optional allocation happens immediately after the publisher
   // since it is one of th heavier operations.
   combine_cloud_handler_->allocate_pointclouds();
-
-  status_ = CollectorStatus::Finished;
 }
 
 template <typename MsgTraits>
@@ -135,33 +175,33 @@ template <typename MsgTraits>
 std::unordered_map<std::string, typename MsgTraits::PointCloudMessage::ConstSharedPtr>
 CloudCollector<MsgTraits>::get_topic_to_cloud_map()
 {
+  std::lock_guard<std::mutex> lock(collector_mutex_);
   return topic_to_cloud_map_;
 }
 
 template <typename MsgTraits>
-void CloudCollector<MsgTraits>::show_debug_message()
+void CloudCollector<MsgTraits>::show_debug_message(
+  const std::unordered_map<std::string, typename MsgTraits::PointCloudMessage::ConstSharedPtr> & topic_to_cloud_map,
+  const std::shared_ptr<CollectorInfoBase> & collector_info)
 {
-  auto time_until_trigger = timer_->time_until_trigger();
   std::stringstream log_stream;
   log_stream << std::fixed << std::setprecision(6);
   log_stream << "Collector's concatenate callback time: "
              << ros2_parent_node_->get_clock()->now().seconds() << " seconds\n";
 
-  if (auto advanced_info = std::dynamic_pointer_cast<AdvancedCollectorInfo>(collector_info_)) {
+  if (auto advanced_info = std::dynamic_pointer_cast<AdvancedCollectorInfo>(collector_info)) {
     log_stream << "Advanced strategy:\n Collector's reference time min: "
                << advanced_info->timestamp - advanced_info->noise_window
                << " to max: " << advanced_info->timestamp + advanced_info->noise_window
                << " seconds\n";
-  } else if (auto naive_info = std::dynamic_pointer_cast<NaiveCollectorInfo>(collector_info_)) {
+  } else if (auto naive_info = std::dynamic_pointer_cast<NaiveCollectorInfo>(collector_info)) {
     log_stream << "Naive strategy:\n Collector's timestamp: " << naive_info->timestamp
                << " seconds\n";
   }
 
-  log_stream << "Time until trigger: " << (time_until_trigger.count() / 1e9) << " seconds\n";
-
   log_stream << "Pointclouds: [";
   std::string separator = "";
-  for (const auto & [topic, cloud] : topic_to_cloud_map_) {
+  for (const auto & [topic, cloud] : topic_to_cloud_map) {
     log_stream << separator;
     log_stream << "[" << topic << ", " << rclcpp::Time(cloud->header.stamp).seconds() << "]";
     separator = ", ";
@@ -175,7 +215,8 @@ void CloudCollector<MsgTraits>::show_debug_message()
 template <typename MsgTraits>
 void CloudCollector<MsgTraits>::reset()
 {
-  status_ = CollectorStatus::Idle;  // Reset status to Idle
+  std::lock_guard<std::mutex> lock(collector_mutex_);
+  status_.store(CollectorStatus::Idle);  // Reset status to Idle
   topic_to_cloud_map_.clear();
   collector_info_ = nullptr;
 

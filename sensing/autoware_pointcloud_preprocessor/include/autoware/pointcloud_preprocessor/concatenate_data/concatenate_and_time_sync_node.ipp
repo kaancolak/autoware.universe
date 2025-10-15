@@ -161,7 +161,6 @@ void PointCloudConcatenateDataSynchronizerComponentTemplated<MsgTraits>::initial
         combine_cloud_handler_, params_.input_topics.size(), params_.timeout_sec,
         params_.debug_mode));
   }
-  init_collector_list_ = true;
 }
 
 template <typename MsgTraits>
@@ -171,12 +170,13 @@ void PointCloudConcatenateDataSynchronizerComponentTemplated<MsgTraits>::cloud_c
 {
   stop_watch_ptr_->toc("processing_time", true);
 
-  if (!init_collector_list_) {
+  // Thread-safe one-time initialization
+  std::call_once(init_collectors_flag_, [this]() {
+    std::lock_guard<std::mutex> lock(collectors_mutex_);
     initialize_collector_list();
-  }
+  });
 
   double cloud_arrival_time = this->get_clock()->now().seconds();
-  manage_collector_list();
 
   if (!utils::is_data_layout_compatible_with_point_xyzirc(*input_ptr)) {
     RCLCPP_ERROR(
@@ -213,41 +213,54 @@ void PointCloudConcatenateDataSynchronizerComponentTemplated<MsgTraits>::cloud_c
   matching_params.cloud_arrival_time = cloud_arrival_time;
   matching_params.cloud_timestamp = rclcpp::Time(input_ptr->header.stamp).seconds();
 
-  if (!cloud_collectors_.empty()) {
-    cloud_collector =
-      collector_matching_strategy_->match_cloud_to_collector(cloud_collectors_, matching_params);
-  }
-
-  if (cloud_collector.has_value() && cloud_collector.value()) {
-    selected_collector = cloud_collector.value();
-  }
-
-  // Didn't find matched collector
-  if (!selected_collector || selected_collector->get_status() == CollectorStatus::Finished) {
-    // Reuse a collector if one is in the IDLE state
-    auto it = std::find_if(
-      cloud_collectors_.begin(), cloud_collectors_.end(),
-      [](const auto & collector) { return collector->get_status() == CollectorStatus::Idle; });
-
-    if (it != cloud_collectors_.end()) {
-      selected_collector = *it;
-    } else {
-      auto oldest_it = find_and_reset_oldest_collector();
-      if (oldest_it != cloud_collectors_.end()) {
-        selected_collector = *oldest_it;
-      } else {
-        // Handle case where no suitable collector is found
-        RCLCPP_ERROR(get_logger(), "No available CloudCollector in IDLE state.");
-        return;
+  {
+    std::lock_guard<std::mutex> lock(collectors_mutex_);
+    
+    // Reset finished collectors first
+    for (auto & collector : cloud_collectors_) {
+      if (collector->get_status() == CollectorStatus::Finished) {
+        collector->reset();
       }
     }
+    
+    if (!cloud_collectors_.empty()) {
+      cloud_collector =
+        collector_matching_strategy_->match_cloud_to_collector(cloud_collectors_, matching_params);
+    }
 
-    if (selected_collector) {
-      collector_matching_strategy_->set_collector_info(selected_collector, matching_params);
+    if (cloud_collector.has_value() && cloud_collector.value()) {
+      selected_collector = cloud_collector.value();
+    }
+
+    // Didn't find matched collector
+    if (!selected_collector || selected_collector->get_status() == CollectorStatus::Finished) {
+      // Reuse a collector if one is in the IDLE state
+      auto it = std::find_if(
+        cloud_collectors_.begin(), cloud_collectors_.end(),
+        [](const auto & collector) { return collector->get_status() == CollectorStatus::Idle; });
+
+      if (it != cloud_collectors_.end()) {
+        selected_collector = *it;
+      } else {
+        auto oldest_it = find_and_reset_oldest_collector();
+        if (oldest_it != cloud_collectors_.end()) {
+          selected_collector = *oldest_it;
+        } else {
+          // Handle case where no suitable collector is found
+          RCLCPP_ERROR(get_logger(), "No available CloudCollector in IDLE state.");
+          return;
+        }
+      }
+
+      if (selected_collector) {
+        collector_matching_strategy_->set_collector_info(selected_collector, matching_params);
+      }
     }
   }
 
-  selected_collector->process_pointcloud(topic_name, input_ptr);
+  if (selected_collector) {
+    selected_collector->process_pointcloud(topic_name, input_ptr);
+  }
 }
 
 template <typename MsgTraits>
@@ -380,6 +393,7 @@ void PointCloudConcatenateDataSynchronizerComponentTemplated<MsgTraits>::publish
 template <typename MsgTraits>
 void PointCloudConcatenateDataSynchronizerComponentTemplated<MsgTraits>::manage_collector_list()
 {
+  std::lock_guard<std::mutex> lock(collectors_mutex_);
   for (auto & collector : cloud_collectors_) {
     if (collector->get_status() == CollectorStatus::Finished) {
       collector->reset();
@@ -392,6 +406,7 @@ typename std::list<std::shared_ptr<CloudCollector<MsgTraits>>>::iterator
 PointCloudConcatenateDataSynchronizerComponentTemplated<
   MsgTraits>::find_and_reset_oldest_collector()
 {
+  // Note: This method is called within the collectors_mutex_ lock from cloud_callback
   auto min_it = cloud_collectors_.end();
   constexpr double k_max_timestamp = std::numeric_limits<double>::max();
   double min_timestamp = k_max_timestamp;
@@ -517,6 +532,7 @@ template <typename MsgTraits>
 std::list<std::shared_ptr<CloudCollector<MsgTraits>>>
 PointCloudConcatenateDataSynchronizerComponentTemplated<MsgTraits>::get_cloud_collectors()
 {
+  std::lock_guard<std::mutex> lock(collectors_mutex_);
   return cloud_collectors_;
 }
 
@@ -524,6 +540,7 @@ template <typename MsgTraits>
 void PointCloudConcatenateDataSynchronizerComponentTemplated<MsgTraits>::add_cloud_collector(
   const std::shared_ptr<CloudCollector<MsgTraits>> & collector)
 {
+  std::lock_guard<std::mutex> lock(collectors_mutex_);
   cloud_collectors_.push_back(collector);
 }
 
