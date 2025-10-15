@@ -77,10 +77,10 @@ void CloudCollector<MsgTraits>::process_pointcloud(
 {
   bool should_concatenate = false;
   bool should_warn_duplicate = false;
-  
+
   {
     std::lock_guard<std::mutex> lock(collector_mutex_);
-    
+
     if (status_.load() == CollectorStatus::Idle) {
       // Add first pointcloud to the collector, restart the timer
       status_.store(CollectorStatus::Processing);
@@ -91,14 +91,14 @@ void CloudCollector<MsgTraits>::process_pointcloud(
       if (topic_to_cloud_map_.find(topic_name) != topic_to_cloud_map_.end()) {
         should_warn_duplicate = true;
       }
-    } 
+    }
 
     topic_to_cloud_map_[topic_name] = cloud;
     if (topic_to_cloud_map_.size() == num_of_clouds_) {
       should_concatenate = true;
     }
   }
-  
+
   // Log warning outside the lock to avoid deadlock
   if (should_warn_duplicate) {
     RCLCPP_WARN_STREAM_THROTTLE(
@@ -107,7 +107,7 @@ void CloudCollector<MsgTraits>::process_pointcloud(
       "Topic '" << topic_name
                 << "' already exists in the collector. Check the timestamp of the pointcloud.");
   }
-  
+
   // Call concatenate_callback outside the lock to avoid deadlock
   if (should_concatenate) {
     concatenate_callback();
@@ -123,29 +123,29 @@ CollectorStatus CloudCollector<MsgTraits>::get_status() const
 template <typename MsgTraits>
 void CloudCollector<MsgTraits>::concatenate_callback()
 {
-  std::unordered_map<std::string, typename MsgTraits::PointCloudMessage::ConstSharedPtr> 
+  std::unordered_map<std::string, typename MsgTraits::PointCloudMessage::ConstSharedPtr>
     topic_to_cloud_map_copy;
   std::shared_ptr<CollectorInfoBase> collector_info_copy;
   bool should_debug = false;
-  
+
   {
     std::lock_guard<std::mutex> lock(collector_mutex_);
-    
+
     // Early return if already finished to prevent double processing
     if (status_.load() == CollectorStatus::Finished) {
       return;
     }
-    
+
     // All pointclouds are received or the timer has timed out, cancel the timer and concatenate the
     // pointclouds in the collector.
     timer_->cancel();
-    
+
     should_debug = debug_mode_;
-    
+
     // Make copies to avoid holding the lock during processing
     topic_to_cloud_map_copy = topic_to_cloud_map_;
     collector_info_copy = collector_info_;
-    
+
     status_.store(CollectorStatus::Finished);
   }
 
@@ -181,7 +181,8 @@ CloudCollector<MsgTraits>::get_topic_to_cloud_map()
 
 template <typename MsgTraits>
 void CloudCollector<MsgTraits>::show_debug_message(
-  const std::unordered_map<std::string, typename MsgTraits::PointCloudMessage::ConstSharedPtr> & topic_to_cloud_map,
+  const std::unordered_map<std::string, typename MsgTraits::PointCloudMessage::ConstSharedPtr> &
+    topic_to_cloud_map,
   const std::shared_ptr<CollectorInfoBase> & collector_info)
 {
   std::stringstream log_stream;

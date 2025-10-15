@@ -113,7 +113,7 @@ private:
   std::unique_ptr<CollectorMatchingStrategy<MsgTraits>> collector_matching_strategy_;
 
   static constexpr const int num_of_collectors{3};
-  
+
   // Thread-safe initialization
   std::once_flag init_collectors_flag_;
   // Mutex to protect cloud_collectors_ list access

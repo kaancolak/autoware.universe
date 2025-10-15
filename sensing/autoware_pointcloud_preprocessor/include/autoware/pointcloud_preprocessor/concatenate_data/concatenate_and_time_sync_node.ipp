@@ -215,14 +215,14 @@ void PointCloudConcatenateDataSynchronizerComponentTemplated<MsgTraits>::cloud_c
 
   {
     std::lock_guard<std::mutex> lock(collectors_mutex_);
-    
+
     // Reset finished collectors first
     for (auto & collector : cloud_collectors_) {
       if (collector->get_status() == CollectorStatus::Finished) {
         collector->reset();
       }
     }
-    
+
     if (!cloud_collectors_.empty()) {
       cloud_collector =
         collector_matching_strategy_->match_cloud_to_collector(cloud_collectors_, matching_params);

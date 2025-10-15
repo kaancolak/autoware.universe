@@ -59,7 +59,8 @@ public:
   void set_info(std::shared_ptr<CollectorInfoBase> collector_info);
   [[nodiscard]] std::shared_ptr<CollectorInfoBase> get_info() const;
   void show_debug_message(
-    const std::unordered_map<std::string, typename MsgTraits::PointCloudMessage::ConstSharedPtr> & topic_to_cloud_map,
+    const std::unordered_map<std::string, typename MsgTraits::PointCloudMessage::ConstSharedPtr> &
+      topic_to_cloud_map,
     const std::shared_ptr<CollectorInfoBase> & collector_info);
   void reset();
 
